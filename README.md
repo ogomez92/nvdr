@@ -1,204 +1,199 @@
 # nvdr
 
-A terminal client for [NVDA Remote](https://nvdaremote.com/). Connects to an
-NVDA Remote relay as the **master** (controller), so you can hear what a
-remote NVDA says — printed as plain text in your terminal — and send
-keystrokes back to it.
+`nvdr` lets you control a remote NVDA screen reader from a machine that isn't
+running NVDA — a Linux box over SSH, a Mac, or an iPhone. It speaks the
+[NVDA Remote](https://nvdaremote.com/) relay protocol as the **master**
+(controller): it hears what the remote NVDA says and forwards your keystrokes
+back to it.
 
-Designed to be run on a VPS over SSH. Cross-platform on the SSH side: works
-from any terminal app on Linux, macOS, Windows, or iOS.
+> **Disclaimer.** This is a hobby project. I built it for personal use to see
+> if the idea would work — nothing more. I'm aware of the official
+> [NVDA Remote](https://nvdaremote.com/) add-on; this is not a replacement for
+> it. What `nvdr` adds is (a) an SSH-bridged transport and (b) what I believe
+> is better keyboard handling in some situations. **Contributions are very
+> welcome** — especially anything around security, but really anything at all.
 
-## Why
+## What's in this repo
 
-The official NVDA Remote add-on assumes you're running NVDA on Windows. If
-you only have a phone or a non-Windows laptop in front of you and need to
-help someone with NVDA, your options are limited. With `nvdr` you can SSH
-into a Linux box and:
+This is a monorepo. Several independently-built components, different
+languages, all speaking the same wire protocol (`client_spec.md` is the shared
+contract):
 
-- read the remote screen reader's speech as scrolling text
-- send keystrokes (including NVDA commands like NVDA+T) back to the remote
-  machine
-- copy/paste text into the remote's clipboard
+| Path             | What it is                                                              |
+| ---------------- | ----------------------------------------------------------------------- |
+| `src/` + `Cargo.toml` | The Rust terminal client. Also exposes `nvdr --ipc`, a line-oriented IPC bridge used by the apps below. |
+| `addon/`         | An NVDA add-on (`nvdrBridge`) — lets a *Windows* NVDA use the SSH bridge.|
+| `mac/`           | A native macOS SwiftUI app.                                             |
+| `ios/`           | An iOS SwiftUI app.                                                     |
 
-## Install
+The terminal client connects directly to the relay over TLS. The Mac app, iOS
+app, and NVDA add-on all go through the **SSH bridge** instead (see below).
+
+## The SSH bridge — read this first
+
+The Mac app, the iOS app, and the NVDA add-on do **not** open a TLS connection
+to the relay themselves. They launch `ssh` and run `nvdr --ipc` on a remote
+**bridge box**, and *that* machine dials the NVDA Remote relay:
+
+```
+your device (Mac / iOS / Windows+NVDA)
+        │  SSH
+        ▼
+   bridge box  ──  runs `nvdr --ipc`  ──  TLS  ──▶  relay  ──▶  remote NVDA
+```
+
+So to use the Mac app, iOS app, or add-on you need a reachable host (Linux,
+macOS, or Windows) with the `nvdr` binary built and on its `PATH`, plus
+key-based SSH auth set up (no password prompts — the apps can't answer one).
+
+This bridge is useful when you want to **encrypt the whole remote session over
+SSH**, or when you simply **can't reach port 6837** (firewalled networks,
+captive Wi-Fi, etc.) — your only outbound connection is SSH.
+
+### Caveats of the bridge
+
+- **The Mac and iOS apps use the SSH bridge unconditionally — there is no way
+  to turn it off.** They will not connect to a relay directly. If you want a
+  direct connection, use the Rust terminal client.
+- **The bridge only works on the controller (master) side**, not the host
+  (slave) side. There is no way to make the *machine being controlled* run
+  through this bridge — that machine still needs ordinary NVDA Remote.
+- **The bridge forwards keystrokes and speech only.** Other NVDA audio — beeps,
+  the forms-mode tone, progress-bar ticks, wave/tone effects — is **not**
+  carried across, for now. You get speech text and that's it.
+- Connecting NVDA's *native* remote access through this bridge is not
+  implemented. If you'd like to add it, contributions are very welcome.
+
+## The Rust terminal client
+
+A terminal client for the NVDA Remote relay. Designed to run on a VPS over
+SSH; works from any terminal on Linux, macOS, Windows, or iOS. This is the
+only component that talks to the relay directly (no bridge).
+
+### Build & install
 
 Requires Rust 1.75+.
 
 ```sh
-cargo build --release
-# binary lands at target/release/nvdr
+cargo build --release        # binary at target/release/nvdr
 ```
 
-Drop `target/release/nvdr` somewhere on your `$PATH` (`~/.local/bin/nvdr`,
-`/usr/local/bin/nvdr`, etc.).
+Drop `target/release/nvdr` somewhere on your `$PATH`.
 
-## Quick start
+### Quick start
 
 ```sh
-# Defaults to localhost:6837. Channel key is prompted if not given.
-nvdr
-
-# Or fully specified:
+nvdr                                                  # localhost:6837, prompts for channel
 nvdr --host relay.example.com --port 6837 --channel 123456789
+nvdr --show-keys                                      # dump the key reference and exit
 ```
 
-On first connect to a host, `nvdr` pins its TLS certificate fingerprint
-(TOFU — Trust On First Use) into `~/.config/nvdr/known_hosts`. On later
-connects it verifies the cert against the pin. If the cert ever changes
-you'll get an interactive prompt (no need to edit the file). For scripted
-use, supply `--fingerprint <sha256-hex>` or `--trust-new-cert`.
+On first connect `nvdr` pins the relay's TLS fingerprint (Trust On First Use)
+into `~/.config/nvdr/known_hosts`; later connects verify against it. Relay
+certs are usually self-signed — that's expected. A cert change drops you into
+an interactive re-pin prompt.
 
-The relay uses TLS by default (NVDA Remote's normal behavior — see
-`server.py` in NVDARemoteServer). `--insecure` disables verification, only
-useful for local testing.
+### Using it
 
-## Using it
+Type, and printable characters, arrows, F-keys, Tab/Enter/Esc/Backspace, and
+any `Ctrl+letter` are forwarded to the remote NVDA — even `Ctrl+C`. Speech
+prints as plain text lines (no ANSI color, screen-reader friendly).
 
-Press a key. If it's a normal printable character, an arrow, F-key, Tab,
-Enter, Backspace, Esc, or any `Ctrl+letter` — it's forwarded to the remote
-NVDA. Even `Ctrl+C`, `Ctrl+Z`, `Ctrl+S` go to the remote, *not* to your
-local shell.
+A terminal can't send Insert or the Windows key, so there's a **leader key**
+(default `Ctrl+G`, set with `--leader`):
 
-Speech from the remote NVDA prints as plain lines:
+| Shortcut          | Sends   | Meaning           |
+| ----------------- | ------- | ----------------- |
+| `<leader>` `c`    | Alt+F4  | close window      |
+| `<leader>` `w`    | NVDA+T  | read window title |
+| `<leader>` `d`    | Win+D   | show desktop      |
+| `<leader>` `t`    | Alt+Tab | switch window     |
 
-```
-[joined channel 123456789 — 1 peer(s) already connected]
-Firefox
-Edit, Address and Search bar, edit
-https://example.com
-```
+`<leader>` `<leader>` toggles a sticky NVDA modifier; `<leader>` `:` opens a
+command prompt (`:k win+r`, `:caps`, `:say <text>`, `:help`, `:quit`, …).
 
-### Leader shortcuts
+There's also a one-shot scripting mode (`-k` / `-s`) — see
+[`scripting.md`](scripting.md).
 
-A terminal can't send the Insert or Windows keys, so `nvdr` provides a
-**leader key** (default **Ctrl+G**, configurable via `--leader`) and a small
-table of letter shortcuts that fire useful combos on the remote machine:
+### What a terminal can't do
 
-| Shortcut             | Sends    | Meaning              |
-| -------------------- | -------- | -------------------- |
-| `<leader>` `c`       | Alt+F4   | close window         |
-| `<leader>` `w`       | NVDA+T   | read window title    |
-| `<leader>` `d`       | Win+D    | show desktop         |
-| `<leader>` `t`       | Alt+Tab  | switch window        |
+CapsLock as a key, the Windows key alone, left/right modifier distinction, a
+modifier pressed alone, most numpad keys. Use `:k win+...` for the Windows key.
 
-More can be added in one line — edit the `SHORTCUTS` table in
-`src/leader.rs`. The `combo` column accepts the same syntax as `:k` (see
-below), so `alt+f4`, `nvda+t`, `win+shift+s`, etc. all work.
+## The NVDA add-on (`addon/`)
 
-Two other things the leader does:
+`nvdrBridge` lets a **Windows** machine running NVDA reach a remote NVDA
+*through the SSH bridge* instead of NVDA Remote's normal direct connection —
+again, for SSH encryption or when port 6837 is blocked.
 
-- `<leader>` `<leader>` — toggle **sticky NVDA modifier**. Every key you
-  press afterward is wrapped with NVDA+. Hit `<leader>` `<leader>` again to
-  turn it off.
-- `<leader>` `:` — open the command prompt.
+- Install: zip the contents of `addon/` (so `manifest.ini` is at the archive
+  root), rename to `nvdrBridge.nvda-addon`, install via NVDA's Add-on Store
+  ("Install from external source"), restart NVDA.
+- Configure under **NVDA → Preferences → Settings → nvdr Bridge** (SSH host /
+  user / key, relay host, channel key).
+- **`NVDA+F11` toggles key forwarding** between local and remote. While
+  forwarding is on, every keystroke (except `NVDA+F11` itself) goes to the
+  remote slave and the remote NVDA's speech is spoken on your local synth.
 
-If the remote NVDA is configured to use CapsLock instead of Insert as its
-modifier, type `<leader>` `:` and run `:caps`.
+This is the controller side only — see the bridge caveats above. Full setup
+and troubleshooting: [`addon/README.md`](addon/README.md).
 
-### Sending arbitrary combos (Win+M, Alt+F4, etc.)
+## The macOS app (`mac/`)
 
-Type `<leader>` `:` to enter the command prompt, then:
+A native SwiftUI app that bridges your Mac to a remote NVDA through the SSH
+bridge. It installs a **system-wide low-level keyboard hook**
+(`CGEventTap` + `IOHIDManager`).
 
-```
-:k win+m              minimize all windows
-:k win+d              show desktop
-:k win+r              Run dialog
-:k alt+f4             close window
-:k ctrl+shift+esc     Task Manager
-:k win+shift+s        snipping tool
-:k nvda+f12           same as <leader> f12
-```
+- **`NVDA+F11` (e.g. `CapsLock+F11`) toggles forwarding** on and off.
+- **While forwarding is on, the app eats *all* keystrokes** — including
+  `Cmd+Q`, `Cmd+Tab`, and other system shortcuts. They are sent to the remote
+  machine, not handled by macOS. Turn forwarding off (`NVDA+F11`) to get your
+  keyboard back.
+- The app **requires Accessibility and Input Monitoring permissions** to run
+  the keyboard hook. It detects when they're missing and shows a banner with
+  buttons that jump straight to the relevant System Settings pane.
+- It is a Developer ID / **non-sandboxed** app — the keyboard hook can't work
+  in the App Store sandbox.
 
-Modifiers: `ctrl`, `alt`, `shift`, `win`, `nvda`, `caps`.
-Base keys: any letter / digit / punctuation, or named:
-`enter tab space esc backspace delete insert home end pgup pgdn up down
-left right f1..f24 apps numlock`.
+## The iOS app (`ios/`)
 
-Aliases for `:k` are `:key` and `:send`.
+A SwiftUI app that bridges an iPhone/iPad to a remote NVDA through the SSH
+bridge.
 
-### Other commands
+- **`NVDA+F11` toggles forwarding** on and off, same as the Mac app.
+- **While forwarding is on, the app captures all hardware-keyboard input** —
+  system combos included — and sends it to the remote machine.
 
-- `:help`        full key reference (same as `nvdr --show-keys`)
-- `:quit`        disconnect and exit
-- `:reconnect`   drop and reconnect immediately
-- `:sas`         send Ctrl+Alt+Del (works only if the remote NVDA has UI
-                 Access — usually no-op)
-- `:caps`        swap Insert ↔ CapsLock as the NVDA modifier
-- `:say <text>`  push `<text>` into the remote clipboard, then send Ctrl+V
-                 (the only way to inject Unicode that doesn't map to keys)
+## Building the apps
 
-Inside the command prompt: `Enter` runs, `Esc` cancels, `Backspace`
-deletes.
-
-## Scripted / one-shot mode (`-k`, `-s`)
-
-For non-interactive use (scripts, AI workflows), `nvdr` can fire a prepared
-sequence of keys and typed text, capture any NVDA speech that comes back for
-a couple of seconds, print it on stdout, then exit:
+Both Swift apps use xcodegen-generated Xcode projects:
 
 ```sh
-nvdr -c 123456789 -k 'nvda+t; alt+f4; win+d'
-nvdr -c 123456789 -s script.txt
+cd mac        # or: cd ios
+xcodegen generate
+xcodebuild
 ```
 
-Separators (`;` or newline) between steps are themselves a 250 ms pause each,
-so `a;;;;b` waits a full second between `a` and `b`. Full grammar,
-layout/Unicode notes, and examples: see [`scripting.md`](scripting.md).
+**These apps will not be published on the App Store** (the Mac one can't be
+sandboxed; the iOS one isn't headed there either). Build them yourself from
+source.
 
-### Adding a new leader shortcut
+## Contributing
 
-The interactive leader table lives in `src/leader.rs` as `SHORTCUTS`. Add
-a row like `Shortcut { key: 'r', combo: "win+r", desc: "Run dialog" }`
-and it's picked up by both the key handler and `--show-keys` / `:help`.
-
-## Custom leader
-
-```sh
-nvdr --leader space     # Ctrl+Space
-nvdr --leader k         # Ctrl+K
-```
-
-Pick something you don't actually type. Avoid `Ctrl+.` / `Ctrl+,` —
-terminals don't encode those into a distinct byte (you'd just send `.` or
-`,`). Letters and Space work everywhere.
-
-## What you can't do over a terminal
-
-- Press CapsLock as a key (it's a state toggle, not a transition)
-- Press the Windows / Super key by itself
-- Distinguish left vs right modifiers
-- Press a modifier alone (just Ctrl, just Shift, etc.)
-- Use most numpad keys distinctly
-
-For the Windows key, use `:k win+<something>`. For NVDA-modifier behavior,
-use the leader.
-
-## Security model
-
-- TLS is mandatory (the relay enforces it).
-- The relay's cert is usually self-signed — that's expected. `nvdr` pins
-  the SHA-256 fingerprint on first connect (`~/.config/nvdr/known_hosts`)
-  and refuses on mismatch.
-- A cert change drops you into an interactive prompt with the old and new
-  fingerprints. Accept only if you expected the rotation.
-- The channel key is a shared secret. Anyone with the key can join — treat
-  it like a password.
+This started as a personal experiment, so there's plenty of room to improve
+it. Contributions are very welcome — **security review and hardening
+especially**, but also better protocol coverage (carrying NVDA's non-speech
+audio, wiring NVDA's native remote access through the bridge), more keyboard
+handling, docs, anything. Open an issue or a PR.
 
 ## Files
 
-- `~/.config/nvdr/known_hosts` — TLS fingerprint cache. One line per host
-  (`host:port  <sha256-hex>`). Editable, but you shouldn't need to.
-
-## Caveats
-
-- Sound effects (`wave` / `tone`) are summarized as `[sound: foo.wav]` /
-  `[beep 440 Hz]`. They're not played.
-- Braille `display` messages are summarized as `[braille N cells]`.
-- Insert as a key works only if your terminal sends `\e[2~` for it (most
-  do).
-- Alt+letter only works if your terminal encodes it as ESC-prefix (almost
-  all do; iOS Blink and Termius do too).
+- `client_spec.md` — the wire protocol this project implements.
+- `scripting.md` — the `-k` / `-s` one-shot scripting grammar.
+- `~/.config/nvdr/known_hosts` — TLS fingerprint cache for the terminal client.
 
 ## License
 
 Same as the NVDA Remote project.
+</content>
+</invoke>
