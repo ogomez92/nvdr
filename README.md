@@ -2,16 +2,17 @@
 
 `nvdr` lets you control a remote NVDA screen reader from a machine that isn't
 running NVDA — a Linux box over SSH, a Mac, or an iPhone. It speaks the
-[NVDA Remote](https://nvdaremote.com/) relay protocol as the **master**
-(controller): it hears what the remote NVDA says and forwards your keystrokes
-back to it.
+NVDA Remote relay protocol as the **master** (controller): it hears what the
+remote NVDA says and forwards your keystrokes back to it.
 
 > **Disclaimer.** This is a hobby project. I built it for personal use to see
-> if the idea would work — nothing more. I'm aware of the official
-> [NVDA Remote](https://nvdaremote.com/) add-on; this is not a replacement for
-> it. What `nvdr` adds is (a) an SSH-bridged transport and (b) what I believe
-> is better keyboard handling in some situations. **Contributions are very
-> welcome** — especially anything around security, but really anything at all.
+> if the idea would work — nothing more. I'm aware of NVDA's native remote
+> access and of the official NVDA Remote controller app currently in
+> [TestFlight](https://testflight.apple.com/join/edg8YSeU); this is not a
+> replacement for either. What `nvdr` adds is (a) an SSH-bridged transport and
+> (b) what I believe is better keyboard handling than that TestFlight app in
+> some situations. **Contributions are very welcome** — especially anything
+> around security, but really anything at all.
 
 ## What's in this repo
 
