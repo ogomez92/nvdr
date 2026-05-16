@@ -55,7 +55,10 @@ captive Wi-Fi, etc.) — your only outbound connection is SSH.
 
 - **The Mac and iOS apps use the SSH bridge unconditionally — there is no way
   to turn it off.** They will not connect to a relay directly. If you want a
-  direct connection, use the Rust terminal client.
+  direct connection, use the Rust terminal client. A contribution that lets
+  the Mac and iOS apps dial the relay directly (no SSH bridge) would be very
+  welcome — and I'll likely get around to it myself before long if there's
+  demand for it.
 - **The bridge only works on the controller (master) side**, not the host
   (slave) side. There is no way to make the *machine being controlled* run
   through this bridge — that machine still needs ordinary NVDA Remote.
