@@ -7,11 +7,11 @@ remote NVDA says and forwards your keystrokes back to it.
 
 > **Disclaimer.** This is a hobby project. I built it for personal use to see
 > if the idea would work — nothing more. I'm aware of NVDA's native remote
-> access and of the official NVDA Remote controller app currently in
+> access and of the NVDA Remote controller app currently in
 > [TestFlight](https://testflight.apple.com/join/edg8YSeU); this is not a
 > replacement for either. What `nvdr` adds is (a) an SSH-bridged transport and
 > (b) what I believe is better keyboard handling than that TestFlight app in
-> some situations. **Contributions are very welcome** — especially anything
+> some situations. **Contributions are welcome** — especially anything
 > around security, but really anything at all.
 
 ## What's in this repo
@@ -66,7 +66,7 @@ captive Wi-Fi, etc.) — your only outbound connection is SSH.
   the forms-mode tone, progress-bar ticks, wave/tone effects — is **not**
   carried across, for now. You get speech text and that's it.
 - Connecting NVDA's *native* remote access through this bridge is not
-  implemented. If you'd like to add it, contributions are very welcome.
+  implemented. If you'd like to add it, contributions are super appreciated.
 
 ## The Rust terminal client
 
@@ -185,7 +185,7 @@ source.
 ## Contributing
 
 This started as a personal experiment, so there's plenty of room to improve
-it. Contributions are very welcome — **security review and hardening
+it. Some things to look at— **security review and hardening
 especially**, but also better protocol coverage (carrying NVDA's non-speech
 audio, wiring NVDA's native remote access through the bridge), more keyboard
 handling, docs, anything. Open an issue or a PR.
