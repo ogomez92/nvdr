@@ -1,0 +1,23 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+fastlane/api_key.json
+fastlane/.env*
+fastlane/testflight/
+
+# Build artifacts
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store

@@ -1,0 +1,115 @@
+default_platform(:ios)
+
+API_KEY_PATH = "./fastlane/api_key.json"
+SCHEME = "parchis"
+# App Store Connect locale codes (not Xcode .lproj names). Add more as needed.
+RELEASE_LOCALES = ["en-US"]
+
+platform :ios do
+  before_all do
+    require "json"
+    cfg = JSON.parse(File.read(File.expand_path("api_key.json", __dir__)))
+    app_store_connect_api_key(
+      key_id: cfg["key_id"],
+      issuer_id: cfg["issuer_id"],
+      key_content: cfg["key"],
+      duration: cfg.fetch("duration", 1200),
+      in_house: cfg.fetch("in_house", false)
+    )
+  end
+
+  def prompt_multiline(label, default_value = nil)
+    if default_value && !default_value.empty?
+      UI.message("Current value for #{label}:")
+      UI.message("-----")
+      UI.message(default_value)
+      UI.message("-----")
+    end
+    text = prompt(
+      text: "#{label} (multi-line; finish with a line containing only END; empty to keep current):",
+      multi_line_end_keyword: "END"
+    )
+    text.strip.empty? ? (default_value || "") : text
+  end
+
+  desc "Bump build number to App Store Connect latest + 1"
+  lane :bump_build do
+    latest = latest_testflight_build_number(
+      app_identifier: CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier),
+      initial_build_number: 0
+    )
+    increment_build_number(build_number: latest + 1)
+  end
+
+  desc "Build and upload a TestFlight beta"
+  lane :beta do
+    require "fileutils"
+    changelog_path = File.expand_path("../changelog.txt", __dir__)
+    changelog_default = File.exist?(changelog_path) ? File.read(changelog_path).strip : ""
+
+    localized = {}
+    last_text = nil
+    RELEASE_LOCALES.each_with_index do |locale, idx|
+      dir = File.expand_path("../fastlane/testflight/#{locale}", __dir__)
+      FileUtils.mkdir_p(dir)
+      path = "#{dir}/whats_new.txt"
+      existing = if File.exist?(path)
+                   File.read(path).strip
+                 elsif idx == 0
+                   changelog_default
+                 else
+                   last_text || ""
+                 end
+      text = prompt_multiline("TestFlight 'What to Test' (#{locale})", existing)
+      File.write(path, text)
+      localized[locale] = { whats_new: text }
+      last_text = text
+    end
+    # Mirror primary locale to changelog.txt for backwards-compat.
+    primary = localized[RELEASE_LOCALES.first][:whats_new]
+    File.write(changelog_path, primary) unless primary == changelog_default
+
+    bump_build
+    build_app(
+      scheme: SCHEME,
+      export_method: "app-store",
+      xcargs: "-allowProvisioningUpdates",
+      export_options: { signingStyle: "automatic" }
+    )
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+      localized_build_info: localized
+    )
+  end
+
+  desc "Build and submit to App Store review"
+  lane :release do
+    require "fileutils"
+    last_text = nil
+    RELEASE_LOCALES.each do |locale|
+      dir = File.expand_path("../fastlane/metadata/#{locale}", __dir__)
+      FileUtils.mkdir_p(dir)
+      path = "#{dir}/release_notes.txt"
+      existing = File.exist?(path) ? File.read(path).strip : (last_text || "")
+      text = prompt_multiline("What's New (#{locale})", existing)
+      File.write(path, text)
+      last_text = text
+    end
+
+    bump_build
+    build_app(
+      scheme: SCHEME,
+      export_method: "app-store",
+      xcargs: "-allowProvisioningUpdates",
+      export_options: { signingStyle: "automatic" }
+    )
+    upload_to_app_store(
+      submit_for_review: true,
+      automatic_release: true,
+      force: true,
+      skip_metadata: false,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+end

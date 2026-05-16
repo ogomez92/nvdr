@@ -1,0 +1,407 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		101A89EAACDADA353854792B /* Permissions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9434B907EAF0A6BDAD8BD0DC /* Permissions.swift */; };
+		149070D388B26DBF16D3E2EF /* IPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EBF3E3AC1A97F52AD0D5743 /* IPC.swift */; };
+		1B29A034CFB18F01C4A038A4 /* RSASHA2AuthDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4F7BC34E52BD484B214B6D9 /* RSASHA2AuthDelegate.swift */; };
+		3A4ACCFD6B0795EC809B7C88 /* RSAOpenSSH.swift in Sources */ = {isa = PBXBuildFile; fileRef = A57494A3D1DF4C8752982331 /* RSAOpenSSH.swift */; };
+		5DBD404B05BCDED9371AD476 /* NvdrApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3696C4F335913649744AAA2 /* NvdrApp.swift */; };
+		7052A30B5258439545EFA46A /* RSASHA2.swift in Sources */ = {isa = PBXBuildFile; fileRef = 798FD6582C94F73EC1DF28F0 /* RSASHA2.swift */; };
+		82B1897682ED6AD001BC0C96 /* KeyCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6B6AC9E7BEB3BA2B5C9A747 /* KeyCapture.swift */; };
+		8ECD41A169573661212E88C2 /* Citadel in Frameworks */ = {isa = PBXBuildFile; productRef = 4D09EA33AC8F407CCBD68407 /* Citadel */; };
+		B5704257CA2F6AB85E95FDB4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0113F5CDC36DD8E4FA2CBB8 /* RootView.swift */; };
+		B57B37151BE4394ACA069C88 /* Settings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F9503834F8163EFF639CEA2 /* Settings.swift */; };
+		C613B02EB8A7EB0DC139C704 /* _CryptoExtras in Frameworks */ = {isa = PBXBuildFile; productRef = CA31A9D2AE60CC4C2B33F9A1 /* _CryptoExtras */; };
+		CC2ED9E4471BA0E75DD7EB93 /* VK.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23595A3876276C8400E77045 /* VK.swift */; };
+		D06586A1F5068E6F9BA55775 /* SpeechOutput.swift in Sources */ = {isa = PBXBuildFile; fileRef = E98975F1450069126AA211EE /* SpeechOutput.swift */; };
+		E2175EF2A7E8BE1F597E4619 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF2B92A6E0A59C8812EA75D9 /* BridgeClient.swift */; };
+		E449BA4DC9FC7809D9FFDD43 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73BDD203DB7C2F60867D2109 /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		23595A3876276C8400E77045 /* VK.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VK.swift; sourceTree = "<group>"; };
+		5FBF6B6A580D99ADAF25A749 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6F9503834F8163EFF639CEA2 /* Settings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings.swift; sourceTree = "<group>"; };
+		73BDD203DB7C2F60867D2109 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		798FD6582C94F73EC1DF28F0 /* RSASHA2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSASHA2.swift; sourceTree = "<group>"; };
+		9434B907EAF0A6BDAD8BD0DC /* Permissions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Permissions.swift; sourceTree = "<group>"; };
+		9EBF3E3AC1A97F52AD0D5743 /* IPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IPC.swift; sourceTree = "<group>"; };
+		A4F7BC34E52BD484B214B6D9 /* RSASHA2AuthDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSASHA2AuthDelegate.swift; sourceTree = "<group>"; };
+		A57494A3D1DF4C8752982331 /* RSAOpenSSH.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RSAOpenSSH.swift; sourceTree = "<group>"; };
+		A6B6AC9E7BEB3BA2B5C9A747 /* KeyCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCapture.swift; sourceTree = "<group>"; };
+		A72C33713D0366C50DB3370D /* Nvdr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nvdr.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C0113F5CDC36DD8E4FA2CBB8 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		D3696C4F335913649744AAA2 /* NvdrApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NvdrApp.swift; sourceTree = "<group>"; };
+		DF2B92A6E0A59C8812EA75D9 /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		E98975F1450069126AA211EE /* SpeechOutput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechOutput.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		48A873AF6F42B878705DA83C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8ECD41A169573661212E88C2 /* Citadel in Frameworks */,
+				C613B02EB8A7EB0DC139C704 /* _CryptoExtras in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		245BC6E43966B1EE40DC51A2 = {
+			isa = PBXGroup;
+			children = (
+				E684376B90B39D0F48D44741 /* Nvdr */,
+				5AC490AD8FC87A201CF0642F /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5AC490AD8FC87A201CF0642F /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A72C33713D0366C50DB3370D /* Nvdr.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E684376B90B39D0F48D44741 /* Nvdr */ = {
+			isa = PBXGroup;
+			children = (
+				DF2B92A6E0A59C8812EA75D9 /* BridgeClient.swift */,
+				5FBF6B6A580D99ADAF25A749 /* Info.plist */,
+				9EBF3E3AC1A97F52AD0D5743 /* IPC.swift */,
+				A6B6AC9E7BEB3BA2B5C9A747 /* KeyCapture.swift */,
+				D3696C4F335913649744AAA2 /* NvdrApp.swift */,
+				9434B907EAF0A6BDAD8BD0DC /* Permissions.swift */,
+				C0113F5CDC36DD8E4FA2CBB8 /* RootView.swift */,
+				A57494A3D1DF4C8752982331 /* RSAOpenSSH.swift */,
+				798FD6582C94F73EC1DF28F0 /* RSASHA2.swift */,
+				A4F7BC34E52BD484B214B6D9 /* RSASHA2AuthDelegate.swift */,
+				6F9503834F8163EFF639CEA2 /* Settings.swift */,
+				73BDD203DB7C2F60867D2109 /* SettingsView.swift */,
+				E98975F1450069126AA211EE /* SpeechOutput.swift */,
+				23595A3876276C8400E77045 /* VK.swift */,
+			);
+			path = Nvdr;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		D39A07A635D32499EC524678 /* Nvdr */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7E2917354DFFE3305BCB2014 /* Build configuration list for PBXNativeTarget "Nvdr" */;
+			buildPhases = (
+				C22601D136C95B67E97D3E0A /* Sources */,
+				48A873AF6F42B878705DA83C /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Nvdr;
+			packageProductDependencies = (
+				4D09EA33AC8F407CCBD68407 /* Citadel */,
+				CA31A9D2AE60CC4C2B33F9A1 /* _CryptoExtras */,
+			);
+			productName = Nvdr;
+			productReference = A72C33713D0366C50DB3370D /* Nvdr.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		032FD105494F8F7E50F22133 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					D39A07A635D32499EC524678 = {
+						DevelopmentTeam = 4TH9Y6ZAQC;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 2845D91F0345CEF36EFA0906 /* Build configuration list for PBXProject "Nvdr" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 245BC6E43966B1EE40DC51A2;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A0EF5B3186C71CA491A47919 /* XCRemoteSwiftPackageReference "Citadel" */,
+				89CD0FF1D082A501BB20B987 /* XCRemoteSwiftPackageReference "swift-crypto" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5AC490AD8FC87A201CF0642F /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				D39A07A635D32499EC524678 /* Nvdr */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C22601D136C95B67E97D3E0A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E2175EF2A7E8BE1F597E4619 /* BridgeClient.swift in Sources */,
+				149070D388B26DBF16D3E2EF /* IPC.swift in Sources */,
+				82B1897682ED6AD001BC0C96 /* KeyCapture.swift in Sources */,
+				5DBD404B05BCDED9371AD476 /* NvdrApp.swift in Sources */,
+				101A89EAACDADA353854792B /* Permissions.swift in Sources */,
+				3A4ACCFD6B0795EC809B7C88 /* RSAOpenSSH.swift in Sources */,
+				7052A30B5258439545EFA46A /* RSASHA2.swift in Sources */,
+				1B29A034CFB18F01C4A038A4 /* RSASHA2AuthDelegate.swift in Sources */,
+				B5704257CA2F6AB85E95FDB4 /* RootView.swift in Sources */,
+				B57B37151BE4394ACA069C88 /* Settings.swift in Sources */,
+				E449BA4DC9FC7809D9FFDD43 /* SettingsView.swift in Sources */,
+				D06586A1F5068E6F9BA55775 /* SpeechOutput.swift in Sources */,
+				CC2ED9E4471BA0E75DD7EB93 /* VK.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		3B8A414ABFA82F9A73EA73C1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 4TH9Y6ZAQC;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.2;
+			};
+			name = Release;
+		};
+		7000152B1DB518EE2D2F64CD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Nvdr/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oriolgomez.nvdr;
+				PRODUCT_NAME = Nvdr;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		AC7D0E61026F05B7594D1055 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = Nvdr/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.oriolgomez.nvdr;
+				PRODUCT_NAME = Nvdr;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		AFF6B755356181E4BE78C050 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 4TH9Y6ZAQC;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.2;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2845D91F0345CEF36EFA0906 /* Build configuration list for PBXProject "Nvdr" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AFF6B755356181E4BE78C050 /* Debug */,
+				3B8A414ABFA82F9A73EA73C1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7E2917354DFFE3305BCB2014 /* Build configuration list for PBXNativeTarget "Nvdr" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC7D0E61026F05B7594D1055 /* Debug */,
+				7000152B1DB518EE2D2F64CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		89CD0FF1D082A501BB20B987 /* XCRemoteSwiftPackageReference "swift-crypto" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-crypto.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.0.0;
+			};
+		};
+		A0EF5B3186C71CA491A47919 /* XCRemoteSwiftPackageReference "Citadel" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/orlandos-nl/Citadel.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.7.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4D09EA33AC8F407CCBD68407 /* Citadel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0EF5B3186C71CA491A47919 /* XCRemoteSwiftPackageReference "Citadel" */;
+			productName = Citadel;
+		};
+		CA31A9D2AE60CC4C2B33F9A1 /* _CryptoExtras */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 89CD0FF1D082A501BB20B987 /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = _CryptoExtras;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 032FD105494F8F7E50F22133 /* Project object */;
+}

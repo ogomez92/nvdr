@@ -1,0 +1,60 @@
+name: Nvdr
+options:
+  bundleIdPrefix: com.oriolgomez
+  deploymentTarget:
+    macOS: "26.0"
+  defaultConfig: Release
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "6.2"
+    DEVELOPMENT_TEAM: 4TH9Y6ZAQC
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+
+packages:
+  Citadel:
+    url: https://github.com/orlandos-nl/Citadel.git
+    from: "0.7.0"
+  swift-crypto:
+    url: https://github.com/apple/swift-crypto.git
+    from: "3.0.0"
+
+targets:
+  Nvdr:
+    type: application
+    platform: macOS
+    sources:
+      - path: Nvdr
+    info:
+      path: Nvdr/Info.plist
+      properties:
+        CFBundleDisplayName: nvdr
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        ITSAppUsesNonExemptEncryption: false
+        LSMinimumSystemVersion: "26.0"
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: "nvdr"
+        # Shown in the Input Monitoring permission prompt — nvdr reads Caps
+        # Lock straight off the HID layer so it can act as the NVDA key.
+        NSInputMonitoringUsageDescription: "nvdr reads Caps Lock at the hardware level so it can act as the NVDA key when forwarding keystrokes to the remote computer."
+    dependencies:
+      - package: Citadel
+      - package: swift-crypto
+        product: _CryptoExtras
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oriolgomez.nvdr
+        PRODUCT_NAME: Nvdr
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Developer ID / direct distribution: not sandboxed (a global event
+        # tap that swallows keystrokes is incompatible with App Sandbox), but
+        # hardened runtime is on so the build can be notarized.
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        CODE_SIGN_STYLE: Automatic

@@ -1,3 +1,4 @@
+mod ipc;
 mod keymap;
 mod leader;
 mod output;
@@ -98,6 +99,13 @@ struct Args {
     /// mode.
     #[arg(long, default_value_t = 250)]
     separator_ms: u64,
+
+    /// Long-running headless mode for driving nvdr from another process
+    /// (e.g. the NVDA add-on). Reads line-oriented commands from stdin,
+    /// emits one-line events to stdout, logs to stderr. See `ipc.rs` for
+    /// the grammar.
+    #[arg(long, conflicts_with_all = ["script", "keys", "show_keys"])]
+    ipc: bool,
 }
 
 fn main() -> Result<()> {
@@ -110,7 +118,9 @@ fn main() -> Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    if args.script.is_some() || args.keys.is_some() {
+    if args.ipc {
+        rt.block_on(ipc::run(args))
+    } else if args.script.is_some() || args.keys.is_some() {
         rt.block_on(run_script(args))
     } else {
         rt.block_on(run(args))
@@ -195,7 +205,7 @@ async fn run(args: Args) -> Result<()> {
     }
 }
 
-async fn sleep_backoff(backoff_ms: &mut u64, cap: u64) {
+pub(crate) async fn sleep_backoff(backoff_ms: &mut u64, cap: u64) {
     let d = Duration::from_millis(*backoff_ms);
     eprintln!("nvdr: waiting {:.1}s before retry", d.as_secs_f32());
     tokio::time::sleep(d).await;
@@ -349,7 +359,7 @@ fn write_raw_buf(buf: &[u8]) {
     let _ = stdout.flush();
 }
 
-async fn handshake(
+pub(crate) async fn handshake(
     writer: &Arc<Mutex<tokio::io::WriteHalf<transport::TlsConn>>>,
     channel: &str,
 ) -> Result<()> {
@@ -379,7 +389,7 @@ async fn handshake(
     Ok(())
 }
 
-async fn send<T: Serialize>(
+pub(crate) async fn send<T: Serialize>(
     writer: &Arc<Mutex<tokio::io::WriteHalf<transport::TlsConn>>>,
     msg: &T,
 ) -> Result<()> {
@@ -391,7 +401,7 @@ async fn send<T: Serialize>(
     Ok(())
 }
 
-async fn send_keys(
+pub(crate) async fn send_keys(
     writer: &Arc<Mutex<tokio::io::WriteHalf<transport::TlsConn>>>,
     ts: &[Transition],
 ) -> Result<()> {
@@ -407,7 +417,7 @@ async fn send_keys(
     Ok(())
 }
 
-fn ctrl_v() -> Vec<Transition> {
+pub(crate) fn ctrl_v() -> Vec<Transition> {
     vec![
         Transition::down(vk::VK_CONTROL),
         Transition::down(0x56),
@@ -416,7 +426,7 @@ fn ctrl_v() -> Vec<Transition> {
     ]
 }
 
-fn update_held(held: &mut Vec<u16>, ts: &[Transition]) {
+pub(crate) fn update_held(held: &mut Vec<u16>, ts: &[Transition]) {
     for t in ts {
         if t.pressed {
             if !held.contains(&t.vk) {
@@ -428,7 +438,7 @@ fn update_held(held: &mut Vec<u16>, ts: &[Transition]) {
     }
 }
 
-async fn release_held(
+pub(crate) async fn release_held(
     writer: &Arc<Mutex<tokio::io::WriteHalf<transport::TlsConn>>>,
     held: &[u16],
 ) {
@@ -446,7 +456,7 @@ async fn release_held(
     }
 }
 
-async fn read_loop(
+pub(crate) async fn read_loop(
     reader: tokio::io::ReadHalf<transport::TlsConn>,
     out: mpsc::UnboundedSender<Inbound>,
 ) {
@@ -497,16 +507,16 @@ fn prompt_line(prompt: &str) -> Result<String> {
     Ok(line.trim().to_string())
 }
 
-struct PinMismatch {
-    host: String,
-    stored: String,
-    got: String,
-    path: PathBuf,
+pub(crate) struct PinMismatch {
+    pub host: String,
+    pub stored: String,
+    pub got: String,
+    pub path: PathBuf,
 }
 
 /// Parse the machine-readable error string emitted by our TLS verifier on a
 /// TOFU fingerprint mismatch. Returns None if the error isn't a pin mismatch.
-fn parse_pin_mismatch(msg: &str) -> Option<PinMismatch> {
+pub(crate) fn parse_pin_mismatch(msg: &str) -> Option<PinMismatch> {
     let idx = msg.find("PIN_MISMATCH ")?;
     let tail = &msg[idx + "PIN_MISMATCH ".len()..];
     let mut host = None;
@@ -684,7 +694,7 @@ async fn run_script(args: Args) -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_join(
+pub(crate) async fn wait_for_join(
     rx: &mut mpsc::UnboundedReceiver<Inbound>,
     timeout: Duration,
 ) -> Result<()> {
