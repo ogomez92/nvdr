@@ -61,13 +61,28 @@ NVDA → Preferences → Settings → **nvdr Bridge**.
 - **Fingerprint** — optional pinned TLS fingerprint. Blank = TOFU on first
   connect (cached on the **bridge box** in `~/.config/nvdr/known_hosts`).
 - **Insecure** — skip TLS verification. Testing only.
+- **Connection attempts before giving up** — how many consecutive failed
+  connects (or lost-session reconnects) to make before nvdr stops retrying and
+  waits for you to press NVDA+F11 again. Default 5; set to 0 to retry forever.
+  Each failed attempt is spaced by an exponential backoff (0.5s, 1s, 2s … up
+  to 30s), and the counter resets to 0 every time a connection succeeds.
 
-Saving the panel restarts the bridge process so changes apply immediately.
+Saving the panel restarts the bridge **only if it's currently connected** —
+saving never starts a connection by itself (that's what NVDA+F11 is for).
 
 ## Use
 
-- **NVDA+F11** — toggle key forwarding. It's a no-op until you see `state
-  ready` (channel joined) — check the NVDA log if it stays silent.
+The bridge does **not** connect when NVDA starts — it connects on demand.
+
+- **NVDA+F11 (first press)** — connect **and** start forwarding. Starts the
+  SSH → `nvdr --ipc` session and dials the relay; you'll hear "nvdr
+  connecting", then "nvdr connected, sending keys to remote" the moment the
+  channel is joined — key forwarding turns on automatically at that point, so
+  one press is all it takes. If ssh host or channel aren't set you'll hear
+  "nvdr bridge not configured"; if the connection fails you'll hear "nvdr
+  couldn't connect" followed by the reason (e.g. an ssh "Permission denied"
+  or a relay connect error) — spoken once, not on every background retry.
+- **NVDA+F11 (once connected)** — toggle key forwarding off/on.
 - While forwarding is on, every keystroke (except NVDA+F11 itself) goes to
   the remote slave, and the remote NVDA's speech is spoken on your local
   synth.
@@ -85,7 +100,8 @@ NVDA log: `%tmp%\nvda.log`. Look for `nvdrBridge:` (add-on side) and `nvdr:`
   `ssh -o BatchMode=yes user@host nvdr --version`. Fix key/agent, then
   restart NVDA (or trigger `Restart the nvdr bridge process` from Input
   gestures).
-- `state disconnected` repeating — the bridge's nvdr can't reach the relay.
-  SSH into the bridge yourself and run the same `nvdr --ipc …` command to
-  see the real error.
+- `state disconnected` repeating then "nvdr stopped trying to connect" — the
+  bridge's nvdr can't reach the relay; it gave up after **Connection attempts
+  before giving up** tries. SSH into the bridge yourself and run the same
+  `nvdr --ipc …` command to see the real error, then press NVDA+F11 to retry.
 - Keys not forwarding — make sure you see `state ready` in the log first.

@@ -1,8 +1,11 @@
 """nvdrBridge — drive the nvdr master client from inside NVDA.
 
-The plugin spawns `nvdr --ipc` as a subprocess at NVDA startup, reads its
-speech events back into local speech, and (when passthrough is toggled on)
-intercepts every keystroke and forwards it as a raw VK transition.
+The plugin spawns `nvdr --ipc` as a subprocess **on demand** — it does not
+connect at NVDA startup. The first NVDA+F11 press starts the subprocess and
+dials the relay; once `state ready` arrives, subsequent NVDA+F11 presses
+toggle passthrough. While passthrough is on the plugin reads the subprocess's
+speech events back into local speech and intercepts every keystroke,
+forwarding it as a raw VK transition.
 
 Why a subprocess and not a direct TLS client in Python: the nvdr binary
 already does TLS pinning, protocol-v2 framing, version-mismatch handling,
@@ -60,6 +63,9 @@ confspec = {
     "channel": 'string(default="")',
     "fingerprint": 'string(default="")',
     "insecure": "boolean(default=False)",
+    # How many consecutive failed connection attempts before we stop retrying
+    # and wait for the user to re-trigger. 0 = retry forever (old behavior).
+    "maxConnectAttempts": "integer(default=5, min=0, max=100)",
 }
 
 
@@ -102,6 +108,32 @@ class NvdrBridge:
         self.proc = None
         self.passthrough = False
         self.connected = False
+        # Set when the user presses NVDA+F11 to connect: once the channel is
+        # joined (`state ready`) we flip passthrough on automatically and
+        # announce it, so a single press both connects and starts forwarding.
+        # Honored (and cleared) on `ready`; survives the IPC layer's own
+        # connect retries so a slow first connect still ends up forwarding.
+        self.pending_passthrough = False
+        # Last reason text we can put on a "couldn't connect" announcement:
+        # last_error is the IPC layer's `error …` line (relay-side cause),
+        # last_stderr is the most recent ssh/nvdr stderr line (covers ssh auth
+        # failures, which never produce an `error` event). Reset per attempt.
+        self.last_error = ""
+        self.last_stderr = ""
+        # One-shot guard so the IPC layer's backoff retries don't repeat the
+        # failure announcement. Reset at the start of each connect attempt.
+        self.connect_failed_announced = False
+        # Retry bounding. The IPC layer reconnects forever on its own; we count
+        # consecutive `state disconnected` events and tear the process down once
+        # we hit max_attempts (snapshotted from config per attempt; 0 = forever),
+        # so it doesn't hammer the relay indefinitely. failed_attempts resets to
+        # 0 on every successful join. _giving_up guards the teardown as one-shot.
+        self.failed_attempts = 0
+        self.max_attempts = 0
+        self._giving_up = False
+        # True only while stop() is deliberately tearing the process down, so
+        # the stdout EOF handler stays silent for an intentional shutdown.
+        self._stopping = False
         self._stdout_thread = None
         self._stderr_thread = None
         self._write_lock = threading.Lock()
@@ -115,6 +147,18 @@ class NvdrBridge:
                 "nvdrBridge: ssh host or channel not configured; not starting"
             )
             return
+
+        # Fresh attempt: clear reason text and re-arm the one-shot failure
+        # announcement so this connect can report its own outcome.
+        self.last_error = ""
+        self.last_stderr = ""
+        self.connect_failed_announced = False
+        self._stopping = False
+        # Re-arm retry bounding and snapshot the cap (read on the main thread
+        # here; the stdout thread later compares against this cached value).
+        self.failed_attempts = 0
+        self._giving_up = False
+        self.max_attempts = cfg["maxConnectAttempts"]
 
         # Build the command nvdr will run on the bridge box. shlex.quote on
         # each piece so a channel key with shell metacharacters can't break
@@ -188,6 +232,9 @@ class NvdrBridge:
     def stop(self):
         if self.proc is None:
             return
+        # Mark the teardown as intentional so the stdout EOF handler doesn't
+        # mistake this clean shutdown for a connect failure / dropped session.
+        self._stopping = True
         try:
             self._write_line("quit")
         except Exception:
@@ -201,10 +248,36 @@ class NvdrBridge:
                 log.exception("nvdrBridge: terminate failed")
         self.proc = None
         self.connected = False
+        # A deliberate teardown clears forwarding + any pending intent so a
+        # later (re)start doesn't resume sending keys without a fresh press.
+        self.passthrough = False
+        self.pending_passthrough = False
 
     def restart(self):
         self.stop()
         self.start()
+
+    def ensure_started(self):
+        """Start the bridge if it isn't already running.
+
+        Connection is lazy (triggered by NVDA+F11), so this is the entry
+        point that brings the subprocess up. Returns one of:
+          "unconfigured" — ssh host / channel not set; nothing started.
+          "running"      — a process is already alive (connecting or up).
+          "started"      — a fresh process was (re)spawned.
+        """
+        cfg = config.conf["nvdrBridge"]
+        if not cfg["sshHost"] or not cfg["channel"]:
+            return "unconfigured"
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            return "running"
+        # No process, or a dead one whose stdout loop already flipped us to
+        # disconnected — clear it out and spawn fresh.
+        if proc is not None:
+            self.stop()
+        self.start()
+        return "started"
 
     # -- I/O loops ------------------------------------------------------------
 
@@ -222,10 +295,20 @@ class NvdrBridge:
         except Exception:
             log.exception("nvdrBridge: stdout loop crashed")
         log.info("nvdrBridge: stdout loop exited")
-        # If the loop exits while we still thought we were connected, mark us
-        # disconnected so the next toggle attempt warns rather than silently
-        # dropping keys.
+        # The subprocess closed its output, i.e. it exited (ssh/auth failure,
+        # missing remote command, or nvdr hit a fatal error). Mark disconnected
+        # so the next toggle attempt warns rather than silently dropping keys.
         self.connected = False
+        if self._stopping:
+            # Intentional teardown — say nothing.
+            pass
+        elif self.pending_passthrough:
+            # A connect the user asked for never reached `ready`.
+            self._announce_connect_failure(self.last_error or self.last_stderr)
+        elif self.passthrough:
+            # We were forwarding and the bridge died under us.
+            self.passthrough = False
+            wx.CallAfter(ui.message, _("nvdr disconnected; key forwarding off"))
 
     def _stderr_loop(self):
         proc = self.proc
@@ -234,11 +317,67 @@ class NvdrBridge:
         try:
             for raw in proc.stderr:
                 try:
-                    log.info("nvdr: " + raw.decode("utf-8", "replace").rstrip())
+                    text = raw.decode("utf-8", "replace").rstrip()
                 except Exception:
-                    pass
+                    continue
+                log.info("nvdr: " + text)
+                # Keep the last non-empty stderr line as a fallback reason for
+                # a "couldn't connect" announcement — ssh auth failures
+                # ("Permission denied …") surface here and nowhere else.
+                if text:
+                    self.last_stderr = text
         except Exception:
             log.exception("nvdrBridge: stderr loop crashed")
+
+    def _announce_connect_failure(self, reason):
+        """Announce a failed connect attempt once, with a reason if we have one.
+
+        Guarded by `connect_failed_announced` so the IPC layer's backoff
+        retries (each ending in another `state disconnected`) don't repeat the
+        message. Deliberately does NOT clear `pending_passthrough`: if a later
+        retry succeeds we still want that connect to start forwarding.
+        """
+        if self.connect_failed_announced:
+            return
+        self.connect_failed_announced = True
+        reason = (reason or "").strip()
+        # The IPC layer prefixes relay connect errors with "connect: " — drop
+        # it so we don't speak "couldn't connect: connect: …".
+        if reason.startswith("connect: "):
+            reason = reason[len("connect: "):]
+        log.warning(f"nvdrBridge: connect failed: {reason!r}")
+        if reason:
+            # Translators: spoken when the bridge can't connect; {reason} is the
+            # underlying ssh / relay error text.
+            msg = _("nvdr couldn't connect: {reason}").format(reason=reason)
+        else:
+            # Translators: spoken when the bridge can't connect, cause unknown
+            msg = _("nvdr couldn't connect")
+        wx.CallAfter(ui.message, msg)
+
+    def _give_up(self):
+        """Stop retrying after too many failed attempts and tell the user.
+
+        The IPC layer would otherwise reconnect forever (backoff capped at
+        30s). We tear the subprocess down so it stops hammering the relay, and
+        clear pending intent so the next NVDA+F11 starts a clean attempt. The
+        actual stop() runs on a worker thread because, mid connect-retry, the
+        process isn't reading stdin and stop() falls back to a ~2s terminate —
+        we don't want that blocking NVDA's main thread.
+        """
+        if self._giving_up:
+            return
+        self._giving_up = True
+        self.pending_passthrough = False
+        log.warning(
+            f"nvdrBridge: giving up after {self.failed_attempts} failed attempt(s)"
+        )
+        # Translators: spoken when the bridge stops retrying after repeated
+        # connection failures
+        wx.CallAfter(ui.message, _("nvdr stopped trying to connect"))
+        threading.Thread(
+            target=self.stop, name="nvdrBridge-giveup", daemon=True,
+        ).start()
 
     def _handle_event(self, line):
         if not line:
@@ -253,6 +392,9 @@ class NvdrBridge:
         elif head == "state":
             self._handle_state(rest)
         elif head == "error":
+            # Remember it as the likely reason for a subsequent failure
+            # announcement (the `error` line precedes `state disconnected`).
+            self.last_error = rest
             log.warning(f"nvdr error: {rest}")
         else:
             log.debug(f"nvdrBridge: unknown event line: {line!r}")
@@ -260,17 +402,50 @@ class NvdrBridge:
     def _handle_state(self, name):
         if name == "ready":
             self.connected = True
+            # A good join clears the failure budget so later reconnects get a
+            # fresh allowance rather than inheriting earlier failures.
+            self.failed_attempts = 0
             log.info("nvdrBridge: ready (channel joined)")
+            if self.pending_passthrough:
+                # The user pressed NVDA+F11 to connect — honor that by turning
+                # forwarding on now and announcing both facts in one message.
+                self.pending_passthrough = False
+                self.passthrough = True
+                wx.CallAfter(
+                    # Translators: spoken once the relay connects and key
+                    # forwarding turns on automatically
+                    ui.message, _("nvdr connected, sending keys to remote")
+                )
+            else:
+                # A reconnect we didn't explicitly ask to forward on (e.g. the
+                # IPC layer recovered after a drop). Report it, leave
+                # forwarding off so keys don't silently start going remote.
+                # Translators: spoken when the relay (re)connects
+                wx.CallAfter(ui.message, _("nvdr connected"))
         elif name == "disconnected":
             self.connected = False
-            # If passthrough was on, turn it off — nothing to forward to.
-            if self.passthrough:
+            if self._giving_up:
+                # Already tearing down — ignore the retry storm until the
+                # process is gone, so we don't double-count or double-announce.
+                return
+            self.failed_attempts += 1
+            if self.pending_passthrough:
+                # A connect the user asked for failed before joining. Announce
+                # once (with the reason); the IPC layer keeps retrying, and we
+                # leave pending_passthrough set so an eventual success forwards.
+                self._announce_connect_failure(self.last_error or self.last_stderr)
+            elif self.passthrough:
+                # Mid-session drop while forwarding — stop forwarding, say so.
                 self.passthrough = False
                 wx.CallAfter(ui.message, _("nvdr disconnected; key forwarding off"))
+            if self.max_attempts and self.failed_attempts >= self.max_attempts:
+                # Hit the cap — stop the endless reconnect loop.
+                self._give_up()
         elif name == "nvda_not_connected":
             log.info("nvdrBridge: relay reports no remote NVDA on the channel")
         elif name == "quit":
             self.connected = False
+            self.pending_passthrough = False
 
     # -- writing commands -----------------------------------------------------
 
@@ -418,7 +593,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
         NVDASettingsDialog.categoryClasses.append(NvdrBridgeSettings)
 
         _bridge = NvdrBridge()
-        _bridge.start()
+        # Do NOT start the subprocess here — connection is lazy. The first
+        # NVDA+F11 press (script_toggleSend) brings the bridge up on demand.
 
         # Install keyboard hooks. NVDA captures the callbacks at startup via
         # `winInputHook.setCallbacks(keyDown=internal_keyDownEvent, …)`, so
@@ -474,7 +650,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
     @scriptHandler.script(
         # Translators: input gesture description
-        description=_("Toggle sending keys to the remote NVDA"),
+        description=_("Connect to, or toggle sending keys to, the remote NVDA"),
         gesture="kb:NVDA+f11",
     )
     def script_toggleSend(self, gesture):
@@ -483,8 +659,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
             ui.message(_("nvdr bridge not started"))
             return
         if not _bridge.connected:
-            # Translators: spoken when the relay isn't connected
-            ui.message(_("nvdr not connected"))
+            # Not connected yet: this press initiates the connection rather
+            # than toggling passthrough. We connect on demand instead of at
+            # NVDA startup so the SSH/relay session only exists when wanted.
+            status = _bridge.ensure_started()
+            if status == "unconfigured":
+                # Translators: spoken when ssh host / channel aren't configured
+                ui.message(_("nvdr bridge not configured"))
+            else:
+                # Remember the user wants to forward; _handle_state turns
+                # passthrough on (and announces) the moment the channel joins.
+                _bridge.pending_passthrough = True
+                # Translators: spoken while the bridge connects to the relay
+                ui.message(_("nvdr connecting"))
             return
         _bridge.passthrough = not _bridge.passthrough
         log.info(
@@ -613,6 +800,14 @@ class NvdrBridgeSettings(SettingsPanel):
         )
         self.insecureCheck.SetValue(cfg["insecure"])
 
+        # Translators: settings field. 0 means keep retrying forever.
+        self.maxAttemptsSpin = relayHelper.addLabeledControl(
+            _("Connection &attempts before giving up (0 = keep trying):"),
+            nvdaControls.SelectOnFocusSpinCtrl,
+            min=0, max=100,
+        )
+        self.maxAttemptsSpin.SetValue(cfg["maxConnectAttempts"])
+
         sHelper.addItem(relaySizer)
 
     def onSave(self):
@@ -628,7 +823,10 @@ class NvdrBridgeSettings(SettingsPanel):
         cfg["channel"] = self.channelEdit.GetValue()
         cfg["fingerprint"] = self.fingerprintEdit.GetValue()
         cfg["insecure"] = self.insecureCheck.GetValue()
+        cfg["maxConnectAttempts"] = self.maxAttemptsSpin.GetValue()
         # Apply the new connection params immediately rather than making the
-        # user restart NVDA to see the change take effect.
-        if _bridge is not None:
+        # user restart NVDA to see the change take effect — but only if a
+        # session is already up. Connection is lazy (NVDA+F11), so saving
+        # settings must not itself bring the bridge online.
+        if _bridge is not None and _bridge.proc is not None:
             wx.CallAfter(_bridge.restart)
