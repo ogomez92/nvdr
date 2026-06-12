@@ -1,0 +1,30 @@
+[
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\mipmap-anydpi-v26\\ic_launcher.xml"
+    },
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\drawable_ic_launcher_foreground.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\drawable\\ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.oriolgomez.nvdr.app-debug-47:/xml_accessibility_service_config.xml.flat",
+        "source": "com.oriolgomez.nvdr.app-main-49:/xml/accessibility_service_config.xml"
+    },
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\xml_data_extraction_rules.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\xml\\data_extraction_rules.xml"
+    },
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\xml_backup_rules.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\xml\\backup_rules.xml"
+    },
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\mipmap-anydpi-v26\\ic_launcher_round.xml"
+    },
+    {
+        "merged": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-debug-47:\\drawable_ic_launcher_background.xml.flat",
+        "source": "C:\\Users\\Nitropc\\.gradle\\daemon\\8.11.1\\com.oriolgomez.nvdr.app-main-49:\\drawable\\ic_launcher_background.xml"
+    }
+]

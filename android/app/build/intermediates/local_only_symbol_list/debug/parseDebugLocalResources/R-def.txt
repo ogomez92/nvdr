@@ -1,0 +1,13 @@
+R_DEF: Internal format may change without notice
+local
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+mipmap ic_launcher
+mipmap ic_launcher_round
+string accessibility_description
+string accessibility_label
+string app_name
+style Theme.Nvdr
+xml accessibility_service_config
+xml backup_rules
+xml data_extraction_rules

@@ -26,26 +26,28 @@ contract):
 | `addon/`         | An NVDA add-on (`nvdrBridge`) — lets a *Windows* NVDA use the SSH bridge.|
 | `mac/`           | A native macOS SwiftUI app.                                             |
 | `ios/`           | An iOS SwiftUI app.                                                     |
+| `android/`       | A native Android app (Kotlin + Jetpack Compose).                        |
 
 The terminal client connects directly to the relay over TLS. The Mac app, iOS
-app, and NVDA add-on all go through the **SSH bridge** instead (see below).
+app, Android app, and NVDA add-on all go through the **SSH bridge** instead
+(see below).
 
 ## The SSH bridge — read this first
 
-The Mac app, the iOS app, and the NVDA add-on do **not** open a TLS connection
-to the relay themselves. They launch `ssh` and run `nvdr --ipc` on a remote
-**bridge box**, and *that* machine dials the NVDA Remote relay:
+The Mac app, the iOS app, the Android app, and the NVDA add-on do **not** open a
+TLS connection to the relay themselves. They launch `ssh` and run `nvdr --ipc`
+on a remote **bridge box**, and *that* machine dials the NVDA Remote relay:
 
 ```
-your device (Mac / iOS / Windows+NVDA)
+your device (Mac / iOS / Android / Windows+NVDA)
         │  SSH
         ▼
    bridge box  ──  runs `nvdr --ipc`  ──  TLS  ──▶  relay  ──▶  remote NVDA
 ```
 
-So to use the Mac app, iOS app, or add-on you need a reachable host (Linux,
-macOS, or Windows) with the `nvdr` binary built and on its `PATH`, plus
-key-based SSH auth set up (no password prompts — the apps can't answer one).
+So to use the Mac app, iOS app, Android app, or add-on you need a reachable host
+(Linux, macOS, or Windows) with the `nvdr` binary built and on its `PATH`, plus
+SSH auth set up (the apps support a private key or a password).
 
 This bridge is useful when you want to **encrypt the whole remote session over
 SSH**, or when you simply **can't reach port 6837** (firewalled networks,

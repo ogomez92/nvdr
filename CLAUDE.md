@@ -14,8 +14,9 @@ This repo holds several independently-built components in different languages th
 - **`addon/`** — the Python NVDA add-on (`globalPlugins/nvdrBridge`), the host/slave side that hooks the keyboard and speech.
 - **`ios/`** — the iOS SwiftUI app (xcodegen-generated Xcode project). Bridges an iOS device to a remote NVDA over SSH → `nvdr --ipc`.
 - **`mac/`** — the native macOS SwiftUI app. Same role as `ios/`, but with a system-wide low-level keyboard hook (`CGEventTap` + `IOHIDManager`, see `mac/Nvdr/KeyCapture.swift`). Developer ID / non-sandboxed.
+- **`android/`** — the native Android app (Kotlin + Jetpack Compose, Gradle). Same role as `ios/`: focused-only keyboard capture (`MainActivity.dispatchKeyEvent`) plus an **optional** system-wide capture path via an `AccessibilityService` with key-event filtering (`input/NvdrAccessibilityService.kt`, the mac-`CGEventTap` analog — needed to grab combos Android intercepts first, e.g. Alt+Tab / Meta). SSH via **SSHJ**, speech via Android `TextToSpeech`. Build with `./gradlew assembleDebug` inside `android/` (JDK 17 + Android SDK).
 
-`ios/` and `mac/` share ~10 near-identical Swift files (BridgeClient, IPC, RSA*, Settings, SpeechOutput) — kept as deliberate copies, not a shared package; edits to protocol-shaping logic must be mirrored. `mac/Nvdr/VK.swift` mirrors `src/vk.rs`; each Swift tree has its own `AGENTS.md`. Build the apps with `xcodegen generate` then `xcodebuild` inside `ios/` or `mac/`.
+`ios/` and `mac/` share ~10 near-identical Swift files (BridgeClient, IPC, RSA*, Settings, SpeechOutput) — kept as deliberate copies, not a shared package; edits to protocol-shaping logic must be mirrored. `mac/Nvdr/VK.swift` mirrors `src/vk.rs`; each Swift tree has its own `AGENTS.md`. Build the Swift apps with `xcodegen generate` then `xcodebuild` inside `ios/` or `mac/`. The `android/` tree re-implements the same contracts in Kotlin (`ipc/Ipc.kt`, `input/VK.kt`, `input/KeyMap.kt`) and has its own `AGENTS.md`; protocol-shaping changes must be mirrored there too.
 
 ## Build / run
 

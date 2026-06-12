@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_description">Lets nvdr capture the hardware keyboard system-wide and forward it to the remote NVDA — including combinations Android would otherwise intercept itself, such as Alt+Tab and the Windows/Meta key. Keys are only captured while you turn forwarding on inside nvdr.</string>
+    <string name="accessibility_label">nvdr keyboard capture</string>
+    <string name="app_name">nvdr</string>
+    <style name="Theme.Nvdr" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/background_light</item>
+    </style>
+</resources>
