@@ -91,7 +91,12 @@ Drop `target/release/nvdr` somewhere on your `$PATH`.
 nvdr                                                  # localhost:6837, prompts for channel
 nvdr --host relay.example.com --port 6837 --channel 123456789
 nvdr --show-keys                                      # dump the key reference and exit
+nvdr --ipc --observe --channel 123456789              # read-only IPC events
 ```
+
+IPC observer mode joins the relay as a master because the protocol has no
+observer role. It emits connection state and remote output while rejecting
+keyboard, clipboard, and secure-attention commands locally.
 
 On first connect `nvdr` pins the relay's TLS fingerprint (Trust On First Use)
 into `~/.config/nvdr/known_hosts`; later connects verify against it. Relay

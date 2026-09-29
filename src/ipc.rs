@@ -20,7 +20,7 @@
 //! - `quit` — clean shutdown.
 //!
 //! Anything else is logged as `error bad command: …` and ignored. Closing
-//! stdin is treated as `quit`.
+//! stdin is treated as `quit`. With `--observe`, only `quit` is accepted.
 //!
 //! # Stdout events (one per line, the channel the controller actually parses)
 //!
@@ -119,6 +119,10 @@ fn slave_id(client: &serde_json::Value) -> Option<u64> {
         .flatten()
 }
 
+fn command_allowed(command: &Cmd, observe: bool) -> bool {
+    !observe || matches!(command, Cmd::Quit)
+}
+
 pub async fn run(args: crate::Args) -> Result<()> {
     let channel = args
         .channel
@@ -168,7 +172,7 @@ pub async fn run(args: crate::Args) -> Result<()> {
             }
         };
 
-        match session(conn, &channel, nvda_vk).await {
+        match session(conn, &channel, nvda_vk, args.observe).await {
             SessionOutcome::Quit => {
                 emit_state("quit");
                 return Ok(());
@@ -187,7 +191,12 @@ pub async fn run(args: crate::Args) -> Result<()> {
     }
 }
 
-async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> SessionOutcome {
+async fn session(
+    conn: transport::TlsConn,
+    channel: &str,
+    nvda_vk: u16,
+    observe: bool,
+) -> SessionOutcome {
     let (reader, writer) = tokio::io::split(conn);
     let writer = Arc::new(Mutex::new(writer));
 
@@ -226,6 +235,10 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
                     // Stdin closed — controller is gone; shut down cleanly.
                     break SessionOutcome::Quit;
                 };
+                if !command_allowed(&cmd, observe) {
+                    emit_error("observer mode rejects remote-control commands");
+                    continue;
+                }
                 match cmd {
                     Cmd::Key(vk, pressed) => {
                         eprintln!("nvdr-ipc: relay key vk={vk} pressed={pressed}");
@@ -473,5 +486,22 @@ mod tests {
             }),
             Some("waiting_for_nvda")
         );
+    }
+
+    #[test]
+    fn observer_allows_only_quit() {
+        let controls = [
+            Cmd::Key(65, true),
+            Cmd::Combo(Vec::new()),
+            Cmd::Type("text".into()),
+            Cmd::Sas,
+            Cmd::ReleaseAll,
+        ];
+
+        assert!(controls
+            .iter()
+            .all(|command| !command_allowed(command, true)));
+        assert!(command_allowed(&Cmd::Quit, true));
+        assert!(command_allowed(&Cmd::Combo(Vec::new()), false));
     }
 }

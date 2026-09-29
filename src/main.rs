@@ -106,6 +106,10 @@ struct Args {
     /// the grammar.
     #[arg(long, conflicts_with_all = ["script", "keys", "show_keys"])]
     ipc: bool,
+
+    /// Receive IPC state and output without permitting remote-control commands.
+    #[arg(long, requires = "ipc")]
+    observe: bool,
 }
 
 fn main() -> Result<()> {
