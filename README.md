@@ -91,7 +91,19 @@ Drop `target/release/nvdr` somewhere on your `$PATH`.
 nvdr                                                  # localhost:6837, prompts for channel
 nvdr --host relay.example.com --port 6837 --channel 123456789
 nvdr --show-keys                                      # dump the key reference and exit
+nvdr --ipc --observe --channel 123456789              # read-only IPC events
+nvdr --ipc --json-events --channel 123456789          # structured NVDA output
 ```
+
+IPC observer mode joins the relay as a master because the protocol has no
+observer role. It emits connection state and remote output while rejecting
+keyboard, clipboard, and secure-attention commands locally.
+
+IPC defaults to the compatible `speak <text>` and `cancel` output. With
+`--json-events`, those output records become `event <json>` lines: speech keeps
+flattened `text` plus the raw `sequence` and `priority`; cancel, pause/resume,
+tone parameters, and wave filenames remain in wire order. This mode reports
+metadata only and does not play audio.
 
 On first connect `nvdr` pins the relay's TLS fingerprint (Trust On First Use)
 into `~/.config/nvdr/known_hosts`; later connects verify against it. Relay

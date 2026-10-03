@@ -20,20 +20,23 @@
 //! - `quit` — clean shutdown.
 //!
 //! Anything else is logged as `error bad command: …` and ignored. Closing
-//! stdin is treated as `quit`.
+//! stdin is treated as `quit`. With `--observe`, only `quit` is accepted.
 //!
 //! # Stdout events (one per line, the channel the controller actually parses)
 //!
 //! - `speak <text>` — speech text. Embedded `\n` / `\r` are replaced with
 //!   spaces so the contract of "one event per line" holds.
 //! - `cancel` — slave asked us to interrupt local speech.
-//! - `state <name>` — lifecycle: `connecting`, `ready` (channel_joined seen),
-//!   `nvda_not_connected`, `disconnected`, `quit`.
+//! - `state <name>` — lifecycle: `connecting`, `waiting_for_nvda`, `ready`,
+//!   `disconnected`, `quit`.
 //! - `error <message>` — non-fatal error worth surfacing to the controller.
+//! - With `--json-events`, NVDA output instead uses `event <json>` and retains
+//!   speech sequence/priority, pause, tone, and wave metadata in wire order.
 //!
 //! Everything else (parse warnings, connect attempts, backoff timing) goes to
 //! stderr where the add-on tees it into the NVDA log.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -62,6 +65,120 @@ enum SessionOutcome {
     Quit,
     Dropped(String),
     Fatal(anyhow::Error),
+}
+
+#[derive(Default)]
+struct PeerState {
+    masters: HashSet<u64>,
+    followers: HashSet<u64>,
+}
+
+impl PeerState {
+    fn from_clients(clients: &[serde_json::Value]) -> Self {
+        let mut peers = Self::default();
+        for client in clients {
+            peers.insert(client);
+        }
+        peers
+    }
+
+    fn apply(&mut self, message: &Inbound) -> Option<&'static str> {
+        let before = self.name();
+        match message {
+            Inbound::ChannelJoined { clients, .. } => {
+                *self = Self::from_clients(clients);
+                return Some(self.name());
+            }
+            Inbound::ClientJoined { client, .. } => {
+                if let Some(client) = client {
+                    self.insert(client);
+                }
+            }
+            Inbound::ClientLeft { client, .. } => {
+                if let Some(id) = client.as_ref().and_then(client_id) {
+                    self.masters.remove(&id);
+                    self.followers.remove(&id);
+                }
+            }
+            Inbound::NvdaNotConnected => {
+                self.followers.clear();
+            }
+            _ => {}
+        };
+        (before != self.name()).then_some(self.name())
+    }
+
+    fn insert(&mut self, client: &serde_json::Value) {
+        let Some(id) = client_id(client) else {
+            return;
+        };
+        match client
+            .get("connection_type")
+            .and_then(|value| value.as_str())
+        {
+            Some("master") => {
+                self.masters.insert(id);
+            }
+            Some("slave") => {
+                self.followers.insert(id);
+            }
+            _ => {}
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self.followers.len() {
+            0 => "waiting_for_nvda",
+            1 => "ready",
+            _ => "ambiguous",
+        }
+    }
+
+    fn follower_count(&self) -> usize {
+        self.followers.len()
+    }
+
+    fn master_count(&self) -> usize {
+        self.masters.len()
+    }
+}
+
+fn client_id(client: &serde_json::Value) -> Option<u64> {
+    client.get("id")?.as_u64()
+}
+
+fn peer_event(
+    kind: &str,
+    client: Option<&serde_json::Value>,
+    origin: Option<u64>,
+    peers: &PeerState,
+) -> serde_json::Value {
+    let mut event = serde_json::json!({
+        "kind": kind,
+        "follower_count": peers.follower_count(),
+        "master_count": peers.master_count(),
+    });
+    let fields = event.as_object_mut().expect("JSON object");
+    if let Some(origin) = origin {
+        fields.insert("origin".into(), origin.into());
+    }
+    if let Some(client) = client {
+        if let Some(id) = client_id(client) {
+            fields.insert("peer_id".into(), id.into());
+        }
+        if let Some(connection_type) = client
+            .get("connection_type")
+            .and_then(|value| value.as_str())
+        {
+            fields.insert("connection_type".into(), connection_type.into());
+        }
+    }
+    event
+}
+
+fn command_allowed(command: &Cmd, observe: bool, follower_count: usize) -> bool {
+    matches!(command, Cmd::Quit | Cmd::ReleaseAll)
+        || (!observe && follower_count == 1)
 }
 
 pub async fn run(args: crate::Args) -> Result<()> {
@@ -113,7 +230,7 @@ pub async fn run(args: crate::Args) -> Result<()> {
             }
         };
 
-        match session(conn, &channel, nvda_vk).await {
+        match session(conn, &channel, nvda_vk, args.observe, args.json_events).await {
             SessionOutcome::Quit => {
                 emit_state("quit");
                 return Ok(());
@@ -132,7 +249,13 @@ pub async fn run(args: crate::Args) -> Result<()> {
     }
 }
 
-async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> SessionOutcome {
+async fn session(
+    conn: transport::TlsConn,
+    channel: &str,
+    nvda_vk: u16,
+    observe: bool,
+    json_events: bool,
+) -> SessionOutcome {
     let (reader, writer) = tokio::io::split(conn);
     let writer = Arc::new(Mutex::new(writer));
 
@@ -147,7 +270,7 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
     let stdin_task = tokio::spawn(stdin_loop(cmd_tx, nvda_vk));
 
     let mut held: Vec<u16> = Vec::new();
-    let mut joined = false;
+    let mut peers = PeerState::default();
 
     let outcome = loop {
         tokio::select! {
@@ -161,17 +284,24 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
                     emit_error("version_mismatch: relay rejected protocol v2");
                     break SessionOutcome::Fatal(anyhow!("version mismatch"));
                 }
-                if !joined && matches!(msg, Inbound::ChannelJoined { .. }) {
-                    joined = true;
-                    emit_state("ready");
+                if let Some(state) = peers.apply(&msg) {
+                    emit_state(state);
                 }
-                emit_inbound(&msg);
+                emit_inbound(&msg, json_events, &peers);
             }
             cmd = cmd_rx.recv() => {
                 let Some(cmd) = cmd else {
                     // Stdin closed — controller is gone; shut down cleanly.
                     break SessionOutcome::Quit;
                 };
+                if !command_allowed(&cmd, observe, peers.follower_count()) {
+                    emit_error(if observe {
+                        "observer mode rejects remote-control commands"
+                    } else {
+                        "remote-control command requires exactly one follower"
+                    });
+                    continue;
+                }
                 match cmd {
                     Cmd::Key(vk, pressed) => {
                         eprintln!("nvdr-ipc: relay key vk={vk} pressed={pressed}");
@@ -333,7 +463,25 @@ fn unescape(s: &str) -> String {
     out
 }
 
-fn emit_inbound(msg: &Inbound) {
+fn emit_inbound(msg: &Inbound, json_events: bool, peers: &PeerState) {
+    if json_events {
+        let event = match msg {
+            Inbound::ChannelJoined { origin, .. } => {
+                Some(peer_event("channel_joined", None, *origin, peers))
+            }
+            Inbound::ClientJoined { client, origin } => {
+                Some(peer_event("client_joined", client.as_ref(), *origin, peers))
+            }
+            Inbound::ClientLeft { client, origin } => {
+                Some(peer_event("client_left", client.as_ref(), *origin, peers))
+            }
+            _ => structured_event(msg),
+        };
+        if let Some(event) = event {
+            emit_line(&format!("event {event}"));
+            return;
+        }
+    }
     match msg {
         Inbound::Speak { sequence, .. } => {
             let text = protocol::speak_text(sequence);
@@ -342,7 +490,7 @@ fn emit_inbound(msg: &Inbound) {
             }
         }
         Inbound::Cancel => emit_line("cancel"),
-        Inbound::NvdaNotConnected => emit_state("nvda_not_connected"),
+        Inbound::NvdaNotConnected => {}
         Inbound::Error { error } => {
             emit_error(error.as_deref().unwrap_or("(unspecified)"));
         }
@@ -351,15 +499,48 @@ fn emit_inbound(msg: &Inbound) {
     }
 }
 
+fn structured_event(msg: &Inbound) -> Option<serde_json::Value> {
+    match msg {
+        Inbound::Speak { sequence, priority } => Some(serde_json::json!({
+            "kind": "speak",
+            "text": flatten(&protocol::speak_text(sequence)),
+            "sequence": sequence,
+            "priority": priority,
+        })),
+        Inbound::Cancel => Some(serde_json::json!({"kind": "cancel"})),
+        Inbound::PauseSpeech { switch } => {
+            Some(serde_json::json!({"kind": "pause_speech", "switch": switch}))
+        }
+        Inbound::Tone {
+            hz,
+            length,
+            left,
+            right,
+        } => Some(serde_json::json!({
+            "kind": "tone",
+            "hz": hz,
+            "length": length,
+            "left": left,
+            "right": right,
+        })),
+        Inbound::Wave { file_name } => {
+            Some(serde_json::json!({"kind": "wave", "file_name": file_name}))
+        }
+        _ => None,
+    }
+}
+
 fn emit_speak(text: &str) {
     // Stdout contract is one event per line — collapse any embedded newlines
     // to spaces so a multi-line speech sequence still arrives as a single
     // `speak` event the controller can parse without state.
-    let flat: String = text
-        .chars()
+    emit_line(&format!("speak {}", flatten(text)));
+}
+
+fn flatten(text: &str) -> String {
+    text.chars()
         .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    emit_line(&format!("speak {flat}"));
+        .collect()
 }
 
 fn emit_state(name: &str) {
@@ -379,4 +560,138 @@ fn emit_line(s: &str) {
     let _ = out.write_all(s.as_bytes());
     let _ = out.write_all(b"\n");
     let _ = out.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn peer_state_counts_masters_and_followers() {
+        let mut peers = PeerState::default();
+        peers.apply(&Inbound::ChannelJoined {
+            channel: None,
+            clients: vec![
+                json!({"id": 1, "connection_type": "master"}),
+                json!({"id": 2, "connection_type": "slave"}),
+            ],
+            origin: Some(3),
+        });
+        assert_eq!(peers.master_count(), 1);
+        assert_eq!(peers.follower_count(), 1);
+        assert_eq!(peers.name(), "ready");
+
+        peers.apply(&Inbound::ClientJoined {
+            client: Some(json!({"id": 4, "connection_type": "slave"})),
+            origin: Some(4),
+        });
+        assert_eq!(peers.follower_count(), 2);
+        assert_eq!(peers.name(), "ambiguous");
+    }
+
+    #[test]
+    fn peer_event_contains_safe_counts_and_origin() {
+        let peers = PeerState::from_clients(&[
+            json!({"id": 1, "connection_type": "master"}),
+            json!({"id": 2, "connection_type": "slave"}),
+        ]);
+        assert_eq!(
+            peer_event("channel_joined", None, Some(9), &peers),
+            json!({
+                "kind": "channel_joined",
+                "origin": 9,
+                "follower_count": 1,
+                "master_count": 1,
+            }),
+        );
+    }
+
+    #[test]
+    fn peer_event_identifies_changed_peer() {
+        let client = json!({"id": 4, "connection_type": "slave"});
+        let peers = PeerState::from_clients(std::slice::from_ref(&client));
+        assert_eq!(
+            peer_event("client_joined", Some(&client), Some(4), &peers),
+            json!({
+                "kind": "client_joined",
+                "origin": 4,
+                "peer_id": 4,
+                "connection_type": "slave",
+                "follower_count": 1,
+                "master_count": 0,
+            }),
+        );
+    }
+
+    #[test]
+    fn observer_allows_only_quit() {
+        let controls = [
+            Cmd::Key(65, true),
+            Cmd::Combo(Vec::new()),
+            Cmd::Type("text".into()),
+            Cmd::Sas,
+        ];
+
+        assert!(controls
+            .iter()
+            .all(|command| !command_allowed(command, true, 1)));
+        assert!(command_allowed(&Cmd::Quit, true, 0));
+        assert!(command_allowed(&Cmd::ReleaseAll, true, 0));
+    }
+
+    #[test]
+    fn control_requires_exactly_one_follower() {
+        assert!(!command_allowed(&Cmd::Combo(Vec::new()), false, 0));
+        assert!(command_allowed(&Cmd::Combo(Vec::new()), false, 1));
+        assert!(!command_allowed(&Cmd::Combo(Vec::new()), false, 2));
+        assert!(command_allowed(&Cmd::ReleaseAll, false, 2));
+    }
+
+    #[test]
+    fn structured_events_preserve_nvda_output_metadata() {
+        let sequence = vec![
+            json!("Hello "),
+            json!(["LangChangeCommand", {"lang": "en"}]),
+            json!("world"),
+        ];
+        assert_eq!(
+            structured_event(&Inbound::Speak {
+                sequence: sequence.clone(),
+                priority: Some(json!("now")),
+            }),
+            Some(json!({
+                "kind": "speak",
+                "text": "Hello world",
+                "sequence": sequence,
+                "priority": "now",
+            }))
+        );
+        assert_eq!(
+            structured_event(&Inbound::PauseSpeech { switch: true }),
+            Some(json!({"kind": "pause_speech", "switch": true}))
+        );
+        assert_eq!(
+            structured_event(&Inbound::Tone {
+                hz: Some(440.0),
+                length: Some(80.0),
+                left: Some(60),
+                right: Some(40),
+            }),
+            Some(json!({
+                "kind": "tone", "hz": 440.0, "length": 80.0,
+                "left": 60, "right": 40,
+            }))
+        );
+        assert_eq!(
+            structured_event(&Inbound::Wave {
+                file_name: Some("alert.wav".into())
+            }),
+            Some(json!({"kind": "wave", "file_name": "alert.wav"}))
+        );
+        assert_eq!(
+            structured_event(&Inbound::Cancel),
+            Some(json!({"kind": "cancel"}))
+        );
+    }
 }

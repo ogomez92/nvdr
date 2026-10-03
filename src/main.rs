@@ -106,6 +106,15 @@ struct Args {
     /// the grammar.
     #[arg(long, conflicts_with_all = ["script", "keys", "show_keys"])]
     ipc: bool,
+
+    /// Receive IPC state and output without permitting remote-control commands.
+    #[arg(long, requires = "ipc")]
+    observe: bool,
+
+    /// Emit ordered NVDA output as `event <json>` instead of legacy
+    /// `speak`/`cancel` lines. Only applies to --ipc.
+    #[arg(long, requires = "ipc")]
+    json_events: bool,
 }
 
 fn main() -> Result<()> {
