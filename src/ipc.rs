@@ -20,20 +20,21 @@
 //! - `quit` — clean shutdown.
 //!
 //! Anything else is logged as `error bad command: …` and ignored. Closing
-//! stdin is treated as `quit`.
+//! stdin is treated as `quit`. With `--observe`, only `quit` is accepted.
 //!
 //! # Stdout events (one per line, the channel the controller actually parses)
 //!
 //! - `speak <text>` — speech text. Embedded `\n` / `\r` are replaced with
 //!   spaces so the contract of "one event per line" holds.
 //! - `cancel` — slave asked us to interrupt local speech.
-//! - `state <name>` — lifecycle: `connecting`, `ready` (channel_joined seen),
-//!   `nvda_not_connected`, `disconnected`, `quit`.
+//! - `state <name>` — lifecycle: `connecting`, `waiting_for_nvda`, `ready`,
+//!   `disconnected`, `quit`.
 //! - `error <message>` — non-fatal error worth surfacing to the controller.
 //!
 //! Everything else (parse warnings, connect attempts, backoff timing) goes to
 //! stderr where the add-on tees it into the NVDA log.
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -62,6 +63,64 @@ enum SessionOutcome {
     Quit,
     Dropped(String),
     Fatal(anyhow::Error),
+}
+
+#[derive(Default)]
+struct PeerState {
+    slaves: HashSet<u64>,
+}
+
+impl PeerState {
+    fn apply(&mut self, message: &Inbound) -> Option<&'static str> {
+        match message {
+            Inbound::ChannelJoined { clients, .. } => {
+                self.slaves = clients.iter().filter_map(slave_id).collect();
+                Some(self.name())
+            }
+            Inbound::ClientJoined { client, .. } => {
+                let was_ready = !self.slaves.is_empty();
+                if let Some(id) = client.as_ref().and_then(slave_id) {
+                    self.slaves.insert(id);
+                }
+                (!was_ready && !self.slaves.is_empty()).then_some("ready")
+            }
+            Inbound::ClientLeft { client, .. } => {
+                let was_ready = !self.slaves.is_empty();
+                if let Some(id) = client.as_ref().and_then(client_id) {
+                    self.slaves.remove(&id);
+                }
+                (was_ready && self.slaves.is_empty()).then_some("waiting_for_nvda")
+            }
+            Inbound::NvdaNotConnected => {
+                let changed = !self.slaves.is_empty();
+                self.slaves.clear();
+                changed.then_some("waiting_for_nvda")
+            }
+            _ => None,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        if self.slaves.is_empty() {
+            "waiting_for_nvda"
+        } else {
+            "ready"
+        }
+    }
+}
+
+fn client_id(client: &serde_json::Value) -> Option<u64> {
+    client.get("id")?.as_u64()
+}
+
+fn slave_id(client: &serde_json::Value) -> Option<u64> {
+    (client.get("connection_type")?.as_str()? == "slave")
+        .then(|| client_id(client))
+        .flatten()
+}
+
+fn command_allowed(command: &Cmd, observe: bool) -> bool {
+    !observe || matches!(command, Cmd::Quit)
 }
 
 pub async fn run(args: crate::Args) -> Result<()> {
@@ -113,7 +172,7 @@ pub async fn run(args: crate::Args) -> Result<()> {
             }
         };
 
-        match session(conn, &channel, nvda_vk).await {
+        match session(conn, &channel, nvda_vk, args.observe).await {
             SessionOutcome::Quit => {
                 emit_state("quit");
                 return Ok(());
@@ -132,7 +191,12 @@ pub async fn run(args: crate::Args) -> Result<()> {
     }
 }
 
-async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> SessionOutcome {
+async fn session(
+    conn: transport::TlsConn,
+    channel: &str,
+    nvda_vk: u16,
+    observe: bool,
+) -> SessionOutcome {
     let (reader, writer) = tokio::io::split(conn);
     let writer = Arc::new(Mutex::new(writer));
 
@@ -147,7 +211,7 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
     let stdin_task = tokio::spawn(stdin_loop(cmd_tx, nvda_vk));
 
     let mut held: Vec<u16> = Vec::new();
-    let mut joined = false;
+    let mut peers = PeerState::default();
 
     let outcome = loop {
         tokio::select! {
@@ -161,9 +225,8 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
                     emit_error("version_mismatch: relay rejected protocol v2");
                     break SessionOutcome::Fatal(anyhow!("version mismatch"));
                 }
-                if !joined && matches!(msg, Inbound::ChannelJoined { .. }) {
-                    joined = true;
-                    emit_state("ready");
+                if let Some(state) = peers.apply(&msg) {
+                    emit_state(state);
                 }
                 emit_inbound(&msg);
             }
@@ -172,6 +235,10 @@ async fn session(conn: transport::TlsConn, channel: &str, nvda_vk: u16) -> Sessi
                     // Stdin closed — controller is gone; shut down cleanly.
                     break SessionOutcome::Quit;
                 };
+                if !command_allowed(&cmd, observe) {
+                    emit_error("observer mode rejects remote-control commands");
+                    continue;
+                }
                 match cmd {
                     Cmd::Key(vk, pressed) => {
                         eprintln!("nvdr-ipc: relay key vk={vk} pressed={pressed}");
@@ -342,7 +409,7 @@ fn emit_inbound(msg: &Inbound) {
             }
         }
         Inbound::Cancel => emit_line("cancel"),
-        Inbound::NvdaNotConnected => emit_state("nvda_not_connected"),
+        Inbound::NvdaNotConnected => {}
         Inbound::Error { error } => {
             emit_error(error.as_deref().unwrap_or("(unspecified)"));
         }
@@ -379,4 +446,62 @@ fn emit_line(s: &str) {
     let _ = out.write_all(s.as_bytes());
     let _ = out.write_all(b"\n");
     let _ = out.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn peer_state_follows_slave_membership() {
+        let mut peers = PeerState::default();
+
+        assert_eq!(
+            peers.apply(&Inbound::ChannelJoined {
+                channel: Some("test".into()),
+                clients: vec![json!({"id": 1, "connection_type": "master"})],
+                origin: Some(2),
+            }),
+            Some("waiting_for_nvda")
+        );
+        assert_eq!(
+            peers.apply(&Inbound::ClientJoined {
+                client: Some(json!({"id": 3, "connection_type": "slave"})),
+                origin: Some(3),
+            }),
+            Some("ready")
+        );
+        assert_eq!(
+            peers.apply(&Inbound::ClientJoined {
+                client: Some(json!({"id": 4, "connection_type": "master"})),
+                origin: Some(4),
+            }),
+            None
+        );
+        assert_eq!(
+            peers.apply(&Inbound::ClientLeft {
+                client: Some(json!({"id": 3, "connection_type": "slave"})),
+                origin: Some(3),
+            }),
+            Some("waiting_for_nvda")
+        );
+    }
+
+    #[test]
+    fn observer_allows_only_quit() {
+        let controls = [
+            Cmd::Key(65, true),
+            Cmd::Combo(Vec::new()),
+            Cmd::Type("text".into()),
+            Cmd::Sas,
+            Cmd::ReleaseAll,
+        ];
+
+        assert!(controls
+            .iter()
+            .all(|command| !command_allowed(command, true)));
+        assert!(command_allowed(&Cmd::Quit, true));
+        assert!(command_allowed(&Cmd::Combo(Vec::new()), false));
+    }
 }
