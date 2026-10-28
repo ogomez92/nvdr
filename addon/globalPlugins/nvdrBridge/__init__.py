@@ -13,6 +13,7 @@ held-key tracking, and reconnect/backoff. Reusing it via IPC keeps that logic
 in one place (Rust, tested) and keeps this add-on a thin shim.
 """
 
+import ctypes
 import os
 import shlex
 import sys
@@ -46,6 +47,17 @@ VK_F11 = 0x7A
 # CreationFlag for Popen on Windows that prevents a console window from
 # flashing when nvdr launches.
 _CREATE_NO_WINDOW = 0x08000000
+
+# Where a physical key's events go, decided at key-down and remembered until
+# the matching key-up so the up always lands where the down went — regardless
+# of passthrough flipping in between (e.g. NVDA+F11 is pressed locally but its
+# CapsLock-up happens after forwarding is on; that up must reach local NVDA,
+# not the remote, or local NVDA thinks CapsLock is still held and the remote
+# gets an orphan CapsLock-up).
+_ROUTE_LOCAL = "local"    # down went to NVDA/the OS here
+_ROUTE_REMOTE = "remote"  # down was forwarded to the remote
+_ROUTE_BOTH = "both"      # down went local; a synthetic down was forwarded when passthrough came on
+_ROUTE_DROP = "drop"      # down consumed (toggle chord) or already released remotely; swallow the up
 
 
 confspec = {
@@ -114,6 +126,39 @@ def _nvda_modifier_currently_held():
     return False
 
 
+def _physically_down(vkCode):
+    """Whether the OS sees the key as held (GetAsyncKeyState high bit).
+
+    Only meaningful for keys NVDA passed through to the OS — keys swallowed by
+    the hook (NVDA modifiers, forwarded keys) never update the async state.
+    """
+    try:
+        return bool(ctypes.windll.user32.GetAsyncKeyState(vkCode) & 0x8000)
+    except Exception:
+        return False
+
+
+def _force_capslock_off(tries=0):
+    """Turn the local CapsLock toggle off if it's on (main thread).
+
+    Switching forwarding on/off involves the NVDA key, and if that's CapsLock
+    a stray press can latch the toggle. Wait until CapsLock is physically
+    released (polling; NVDA swallows it so we check our own route table) so
+    our synthetic press doesn't interleave with the real one.
+    """
+    if _bridge is not None and _bridge.key_held(VK_CAPITAL) and tries < 100:
+        wx.CallLater(50, _force_capslock_off, tries + 1)
+        return
+    try:
+        if ctypes.windll.user32.GetKeyState(VK_CAPITAL) & 1:
+            log.info("nvdrBridge: CapsLock was on locally; turning it off")
+            # send() wraps the injection in ignoreInjection, so NVDA lets it
+            # through to the OS instead of treating it as the NVDA key.
+            keyboardHandler.KeyboardInputGesture.fromName("capsLock").send()
+    except Exception:
+        log.exception("nvdrBridge: forcing CapsLock off failed")
+
+
 class NvdrBridge:
     """Lifecycle wrapper around the nvdr subprocess and its IPC streams."""
 
@@ -150,6 +195,12 @@ class NvdrBridge:
         self._stdout_thread = None
         self._stderr_thread = None
         self._write_lock = threading.Lock()
+        # (vkCode, extended) -> _ROUTE_* for every physical key currently held.
+        # Written from the hook thread and read/rewritten when passthrough
+        # flips (main / stdout threads), so all access goes through route_lock.
+        # Reentrant because the hook flips passthrough while holding it.
+        self.key_routes = {}
+        self.route_lock = threading.RLock()
 
     # -- subprocess management ------------------------------------------------
 
@@ -263,7 +314,8 @@ class NvdrBridge:
         self.connected = False
         # A deliberate teardown clears forwarding + any pending intent so a
         # later (re)start doesn't resume sending keys without a fresh press.
-        self.passthrough = False
+        # No release_all: `quit` already makes nvdr release what it holds.
+        self.stop_forwarding(release=False)
         self.pending_passthrough = False
 
     def restart(self):
@@ -320,7 +372,7 @@ class NvdrBridge:
             self._announce_connect_failure(self.last_error or self.last_stderr)
         elif self.passthrough:
             # We were forwarding and the bridge died under us.
-            self.passthrough = False
+            self.stop_forwarding(release=False)
             wx.CallAfter(ui.message, _("nvdr disconnected; key forwarding off"))
 
     def _stderr_loop(self):
@@ -446,7 +498,7 @@ class NvdrBridge:
                 # The user pressed NVDA+F11 to connect — honor that by turning
                 # forwarding on now and announcing both facts in one message.
                 self.pending_passthrough = False
-                self.passthrough = True
+                self.start_forwarding()
                 wx.CallAfter(
                     # Translators: spoken once the relay connects and key
                     # forwarding turns on automatically
@@ -472,7 +524,7 @@ class NvdrBridge:
                 self._announce_connect_failure(self.last_error or self.last_stderr)
             elif self.passthrough:
                 # Mid-session drop while forwarding — stop forwarding, say so.
-                self.passthrough = False
+                self.stop_forwarding(release=False)
                 wx.CallAfter(ui.message, _("nvdr disconnected; key forwarding off"))
             if self.max_attempts and self.failed_attempts >= self.max_attempts:
                 # Hit the cap — stop the endless reconnect loop.
@@ -510,6 +562,68 @@ class NvdrBridge:
     def release_all(self):
         self._write_line("release_all")
 
+    # -- forwarding on/off ----------------------------------------------------
+
+    def key_held(self, vkCode):
+        with self.route_lock:
+            return any(k[0] == vkCode for k in self.key_routes)
+
+    def nvda_modifier_held(self):
+        """NVDA key (Insert/CapsLock) held, per our own route table.
+
+        NVDA swallows these at the hook, so the OS key state can't tell us;
+        and while forwarding NVDA's currentModifiers never sees them.
+        """
+        with self.route_lock:
+            return any(
+                _is_nvda_modifier(vk, ext) for vk, ext in self.key_routes
+            )
+
+    def start_forwarding(self):
+        """Turn passthrough on, carrying over keys that are already held.
+
+        Keys held locally right now (e.g. Shift pressed a hair after NVDA+F11)
+        get a key-down forwarded so the remote sees the chord the user is
+        actually holding; their key-up then goes to both sides. The toggle
+        chord itself (NVDA key, F11) stays local-only.
+        """
+        with self.route_lock:
+            if self.passthrough:
+                return
+            self.passthrough = True
+            for key, route in list(self.key_routes.items()):
+                vk, ext = key
+                if (
+                    route != _ROUTE_LOCAL
+                    or vk == VK_F11
+                    or _is_nvda_modifier(vk, ext)
+                    or not _physically_down(vk)
+                ):
+                    continue
+                self.key_routes[key] = _ROUTE_BOTH
+                self.forward_key(vk, True)
+        wx.CallAfter(_force_capslock_off)
+
+    def stop_forwarding(self, release=True):
+        """Turn passthrough off.
+
+        Keys still held keep their routing: anything forwarded becomes DROP
+        (the remote side is released by release_all / session end, and local
+        NVDA never saw the down), anything shared becomes local-only.
+        """
+        with self.route_lock:
+            was_on = self.passthrough
+            self.passthrough = False
+            for key, route in list(self.key_routes.items()):
+                if route == _ROUTE_REMOTE:
+                    self.key_routes[key] = _ROUTE_DROP
+                elif route == _ROUTE_BOTH:
+                    self.key_routes[key] = _ROUTE_LOCAL
+            if release and was_on:
+                self.release_all()
+        if was_on:
+            wx.CallAfter(_force_capslock_off)
+
 
 # Module-level state so the patched keyboardHandler hooks can find the bridge
 # without going through GlobalPlugin (which itself owns the reference).
@@ -517,14 +631,36 @@ _bridge = None
 _orig_keyDown = None
 _orig_keyUp = None
 
-# VK codes for NVDA modifier keys we've seen pressed *while passthrough is on*.
-# We track this ourselves rather than reading NVDA's currentModifiers because
-# in passthrough mode the hook never forwards modifier events to NVDA (doing so
-# would trigger NVDA's own "modifier alone" gestures locally, and worse, fail
-# to forward the modifier to the remote so chords like NVDA+T arrive there
-# stripped of their modifier). We need the modifier on the *remote*; we only
-# need its held-state *locally* to detect the NVDA+F11 toggle-off gesture.
-_passthrough_mods_held = set()
+
+def _route_new_key_down(vkCode, key):
+    """Pick (and record) the route for a fresh key-down. Hook thread, under
+    route_lock.
+
+    NVDA+F11 is handled here in both directions rather than via NVDA's script
+    dispatch: the script runs later on the main thread, and keys pressed in
+    that gap (e.g. the Shift of a fast Shift+T) would land locally. In
+    passthrough NVDA never sees the modifier, so the script couldn't fire
+    anyway.
+    """
+    b = _bridge
+    if vkCode == VK_F11 and b.connected and b.nvda_modifier_held():
+        if b.passthrough:
+            b.stop_forwarding()
+            log.info("nvdrBridge: passthrough toggled -> False (via in-hook NVDA+F11)")
+            # Translators: spoken when key forwarding is disabled
+            wx.CallAfter(ui.message, _("Sending keys locally"))
+        else:
+            b.start_forwarding()
+            log.info("nvdrBridge: passthrough toggled -> True (via in-hook NVDA+F11)")
+            # Translators: spoken when key forwarding is enabled
+            wx.CallAfter(ui.message, _("Sending keys to remote"))
+        route = _ROUTE_DROP
+    elif b.passthrough and b.connected:
+        route = _ROUTE_REMOTE
+    else:
+        route = _ROUTE_LOCAL
+    b.key_routes[key] = route
+    return route
 
 
 def _hook_keyDown(vkCode, scanCode, extended, injected):
@@ -532,90 +668,51 @@ def _hook_keyDown(vkCode, scanCode, extended, injected):
 
     Invoked by NVDA's low-level hook. In passthrough mode we forward keys to
     the remote nvdr; otherwise we delegate to NVDA's original handler so NVDA
-    continues to behave normally (including its normal NVDA+F11 toggle-on
-    gesture binding).
+    continues to behave normally. A key that's already held (autorepeat)
+    follows the route its first down took.
     """
-    try:
-        if _bridge is not None and _bridge.passthrough:
+    if _bridge is None or _orig_keyDown is None or injected:
+        return _orig_keyDown(vkCode, scanCode, extended, injected) if _orig_keyDown else True
+    key = (vkCode, extended)
+    with _bridge.route_lock:
+        route = _bridge.key_routes.get(key)
+        if route is None:
+            route = _route_new_key_down(vkCode, key)
+        if route in (_ROUTE_REMOTE, _ROUTE_BOTH):
+            _bridge.forward_key(vkCode, True)
+        if _bridge.passthrough:
             log.info(
                 f"nvdrBridge: hook_keyDown vk={vkCode} ext={extended} "
-                f"inj={injected} connected={_bridge.connected}"
+                f"route={route} connected={_bridge.connected}"
             )
-    except Exception:
-        log.exception("nvdrBridge: hook_keyDown logging failed")
-    if (
-        _bridge is None
-        or _orig_keyDown is None
-        or injected
-        or not _bridge.passthrough
-        or not _bridge.connected
-    ):
-        return _orig_keyDown(vkCode, scanCode, extended, injected) if _orig_keyDown else True
-
-    # NVDA+F11 = toggle gesture. We can't rely on NVDA's script dispatch here
-    # because in passthrough mode we never let NVDA see the modifier press —
-    # so handle the chord ourselves.
-    if vkCode == VK_F11 and _passthrough_mods_held:
-        _toggle_passthrough_off()
-        return False
-
-    if _is_nvda_modifier(vkCode, extended):
-        _passthrough_mods_held.add(vkCode)
-        _bridge.forward_key(vkCode, True)
-        return False
-
-    _bridge.forward_key(vkCode, True)
+    if route in (_ROUTE_LOCAL, _ROUTE_BOTH):
+        return _orig_keyDown(vkCode, scanCode, extended, injected)
     return False
 
 
 def _hook_keyUp(vkCode, scanCode, extended, injected):
-    try:
-        if _bridge is not None and _bridge.passthrough:
+    if _bridge is None or _orig_keyUp is None or injected:
+        return _orig_keyUp(vkCode, scanCode, extended, injected) if _orig_keyUp else True
+    key = (vkCode, extended)
+    with _bridge.route_lock:
+        route = _bridge.key_routes.pop(key, None)
+        if route is None:
+            # Down predates the add-on (or was missed): fall back to the
+            # current mode.
+            route = (
+                _ROUTE_REMOTE if _bridge.passthrough and _bridge.connected
+                else _ROUTE_LOCAL
+            )
+        if route in (_ROUTE_REMOTE, _ROUTE_BOTH):
+            _bridge.forward_key(vkCode, False)
+        if _bridge.passthrough:
             log.info(
                 f"nvdrBridge: hook_keyUp vk={vkCode} ext={extended} "
-                f"inj={injected} connected={_bridge.connected}"
+                f"route={route} connected={_bridge.connected}"
             )
-    except Exception:
-        log.exception("nvdrBridge: hook_keyUp logging failed")
-    if (
-        _bridge is None
-        or _orig_keyUp is None
-        or injected
-        or not _bridge.passthrough
-        or not _bridge.connected
-    ):
-        return _orig_keyUp(vkCode, scanCode, extended, injected) if _orig_keyUp else True
-
-    # Swallow the F11-up that pairs with a toggle-off chord we already
-    # consumed. Without this NVDA would see a stray F11-up.
-    if vkCode == VK_F11:
-        return False
-
-    if _is_nvda_modifier(vkCode, extended):
-        _passthrough_mods_held.discard(vkCode)
-        _bridge.forward_key(vkCode, False)
-        return False
-
-    _bridge.forward_key(vkCode, False)
+    if route in (_ROUTE_LOCAL, _ROUTE_BOTH):
+        return _orig_keyUp(vkCode, scanCode, extended, injected)
     return False
-
-
-def _toggle_passthrough_off():
-    """Handle NVDA+F11 *inside* passthrough mode (hook-thread context).
-
-    NVDA's normal script-binding for NVDA+F11 only fires when NVDA's own
-    `currentModifiers` has the NVDA key — but in passthrough mode we don't
-    feed modifier events to NVDA, so that path never fires the script. Do the
-    same work ourselves: drop passthrough, release any keys we've left held on
-    the remote, and announce locally.
-    """
-    if _bridge is None:
-        return
-    _bridge.passthrough = False
-    _passthrough_mods_held.clear()
-    _bridge.release_all()
-    log.info("nvdrBridge: passthrough toggled -> False (via in-hook NVDA+F11)")
-    wx.CallAfter(ui.message, _("Sending keys locally"))
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
@@ -709,15 +806,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
                 # Translators: spoken while the bridge connects to the relay
                 ui.message(_("nvdr connecting"))
             return
-        _bridge.passthrough = not _bridge.passthrough
+        # Normally the hook handles NVDA+F11 itself while connected; this is
+        # the fallback for a rebound gesture.
+        if _bridge.passthrough:
+            # stop_forwarding releases anything we sent over so the remote
+            # slave doesn't keep modifiers latched.
+            _bridge.stop_forwarding()
+        else:
+            _bridge.start_forwarding()
         log.info(
             f"nvdrBridge: passthrough toggled -> {_bridge.passthrough} "
             f"(connected={_bridge.connected})"
         )
-        if not _bridge.passthrough:
-            # Drop any modifiers we sent over before flipping off so the
-            # remote slave doesn't keep them latched.
-            _bridge.release_all()
         ui.message(
             # Translators: spoken when key forwarding is enabled
             _("Sending keys to remote") if _bridge.passthrough

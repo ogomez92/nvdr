@@ -98,6 +98,10 @@ The bridge does **not** connect when NVDA starts — it connects on demand.
   synth.
 - Toggling forwarding off tells nvdr to release any modifiers it considers
   held on the slave, so nothing latches.
+- A key's release always goes to the same side as its press: keys already
+  held when forwarding turns on (e.g. Shift pressed right after NVDA+F11) are
+  pressed on the remote too, while the NVDA key and F11 of the toggle stay
+  local. Each toggle also turns local CapsLock off if it got latched.
 
 ## Troubleshooting
 
